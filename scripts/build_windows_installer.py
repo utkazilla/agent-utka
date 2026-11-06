@@ -92,11 +92,12 @@ def stage(payload, vc_redist, wheelhouse):
 
 
 def smoke_test(directory):
+    directory = directory.resolve()
     env = {**os.environ, "PATH": str(Path(os.environ["SystemRoot"]) / "System32")}
     python = [str(directory / "python" / "python.exe"), "-E", "-s", "-B"]
     subprocess.run([*python, "-c", (
         "import ssl, sys; from pathlib import Path; "
-        "assert Path(sys.prefix) == Path.cwd() / 'python'; "
+        "assert Path(sys.prefix).resolve() == Path.cwd() / 'python'; "
         "ssl.create_default_context(); "
         "import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad; "
         "from copilot.bootstrap import setup_needed; "

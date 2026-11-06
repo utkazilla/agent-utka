@@ -18,7 +18,7 @@ def pack(text, term, heard, *, fence=PACK_FENCE, **rule):
 class KnowledgePackTest(unittest.TestCase):
     def test_project_root_pack_is_loaded_without_import_and_respects_git_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
+            base = Path(tmp).resolve()
             root = base / "Atlas"
             root.mkdir()
             source = root / PACK_FILENAME

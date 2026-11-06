@@ -35,7 +35,7 @@ class LocalRetrievalTests(unittest.TestCase):
             worker = threading.Thread(target=server.serve_forever)
             worker.start()
             try:
-                parent = Path(directory)
+                parent = Path(directory).resolve()
                 project, other = parent / "demo", parent / "other"
                 project.mkdir()
                 other.mkdir()
