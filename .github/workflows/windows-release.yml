@@ -88,6 +88,8 @@ jobs:
 
           Choose **Download and start** to download Qwen speech recognition and Ollama with the default answer model. The initial download is about 6 GB. Keep about 12 GB free for downloading and extracting the files. Models stay on your PC. You can also open the app and configure existing local services in Settings.
 
+          The Start menu and desktop shortcuts use the Agent Utka duck icon. The answer and speech model pickers mark the saved selection. To free memory held by a loaded Ollama model, open **Settings**, select **Refresh VRAM**, choose the model, and select **Unload model**. Ollama can load it again for the next request.
+
           The installer was tested by installing and starting the app with its own Python. The SHA-256 file is provided for download verification.
 
           [See the transcript, selected question, and cited answer in the demo.](https://github.com/utkazilla/agent-utka#see-it-in-action)

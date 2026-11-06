@@ -18,6 +18,8 @@ COPY = {
     "Размер на диске": ("File size", "Tamaño en disco"),
     "Квантование": ("Quantization", "Cuantización"),
     "Установлена": ("Installed", "Instalado"),
+    "Выбрана": ("Selected", "Seleccionado"),
+    "Выбор в настройках · {name}": ("Selected in settings · {name}", "Selección guardada · {name}"),
     "Состояние": ("Status", "Estado"),
     "Размер файлов указан для диска. Свободная VRAM показана отдельно.": (
         "File sizes are for disk storage. Free VRAM is shown separately.",
@@ -66,12 +68,12 @@ COPY = {
 }
 
 
-def show_model_picker(app, parent, *, load_installed, download, use_model, vram):
-    return ModelPicker(app, parent, load_installed, download, use_model, vram).window
+def show_model_picker(app, parent, *, load_installed, download, use_model, vram, selected):
+    return ModelPicker(app, parent, load_installed, download, use_model, vram, selected).window
 
 
 class ModelPicker:
-    def __init__(self, app, parent, load_installed, download, use_model, vram):
+    def __init__(self, app, parent, load_installed, download, use_model, vram, selected):
         self.app, self.language = app, app.ui_language
         self.load_installed, self.download, self.use_model = load_installed, download, use_model
         self.window = w = tk.Toplevel(parent)
@@ -93,6 +95,8 @@ class ModelPicker:
         self.families = {}
         self.variants = {}
         self.installed_models = {}
+        self.saved_model = selected
+        self.saved_label = tk.StringVar(w, self.t("Выбор в настройках · {name}", name=selected))
         self.query = tk.StringVar(w)
         self.family_status = tk.StringVar(w)
         self.variant_status = tk.StringVar(w)
@@ -104,6 +108,7 @@ class ModelPicker:
         controls = tk.Frame(layout, bg=bg)
         controls.pack(side="bottom", fill="x")
         app._label(layout, self.t("Модели Ollama"), size=15, bold=True, bg=bg).pack(fill="x")
+        app._label(layout, var=self.saved_label, color="#a9c9b6", size=10, bg=bg, wrap=680).pack(fill="x")
         app._label(layout, var=vram, color="#b1bbb2", size=9, bg=bg, wrap=680).pack(fill="x", pady=(2, 6))
         self.tabs = ttk.Notebook(layout)
         self.tabs.pack(fill="both", expand=True)
@@ -195,7 +200,8 @@ class ModelPicker:
         self.app._button(top, self.t("Обновить"), self.refresh_installed).pack(side="right")
         self.installed_table = self.tree(tab, [("model", "Модель", 235, True),
                                                ("size", "Размер на диске", 125, False),
-                                               ("quant", "Квантование", 140, False)])
+                                               ("quant", "Квантование", 115, False),
+                                               ("status", "Состояние", 105, False)])
         self.installed_table.bind("<<TreeviewSelect>>", self.update_action)
 
     @staticmethod
@@ -204,7 +210,11 @@ class ModelPicker:
 
     @staticmethod
     def tag(name):
+        name = name.removeprefix("registry.ollama.ai/").removeprefix("library/")
         return name if ":" in name else name + ":latest"
+
+    def is_saved(self, name):
+        return self.tag(name) == self.tag(self.saved_model)
 
     def run(self, key, work, finish):
         token = object()
@@ -307,7 +317,8 @@ class ModelPicker:
         return self.tag(name) in (self.installed_names | self.downloaded)
 
     def variant_values(self, item):
-        return (item.tag, item.size or "—", self.t("Установлена") if self.is_installed(item.tag) else "")
+        status = "Выбрана" if self.is_saved(item.tag) else "Установлена" if self.is_installed(item.tag) else ""
+        return (item.tag, item.size or "—", self.t(status) if status else "")
 
     def refresh_installed(self):
         self.installed_status.set(self.t("Получаю список установленных моделей…"))
@@ -323,11 +334,14 @@ class ModelPicker:
             for item in self.installed_models.values():
                 size = f"{item.size / 10**9:.2f} GB" if item.size is not None else "—"
                 self.installed_table.insert("", "end", iid=item.name,
-                                            values=(item.name, size, item.quantization or "—"))
+                                            values=(item.name, size, item.quantization or "—",
+                                                    self.t("Выбрана") if self.is_saved(item.name) else ""))
             if self.installed_models:
                 self.installed_status.set("")
-                chosen = selection if selection in self.installed_models else next(iter(self.installed_models))
+                saved = next((name for name in self.installed_models if self.is_saved(name)), None)
+                chosen = selection if selection in self.installed_models else saved or next(iter(self.installed_models))
                 self.installed_table.selection_set(chosen)
+                self.installed_table.see(chosen)
             else:
                 self.installed_status.set(self.t("У этого сервера пока нет установленных моделей."))
             for item in self.variants.values():
@@ -389,6 +403,12 @@ class ModelPicker:
         except (OSError, ValueError) as error:
             self.feedback.set(self.t("Не удалось сохранить выбор. {detail}", detail=str(error)))
             return
+        self.saved_model = name
+        self.saved_label.set(self.t("Выбор в настройках · {name}", name=name))
+        for item in self.variants.values():
+            self.variant_table.item(item.tag, values=self.variant_values(item))
+        for name_on_disk in self.installed_models:
+            self.installed_table.set(name_on_disk, "status", self.t("Выбрана") if self.is_saved(name_on_disk) else "")
         self.feedback.set(self.t("Выбрана {name}. Перезапусти Agent Utka, чтобы использовать её для ответов.",
                                  name=name))
 

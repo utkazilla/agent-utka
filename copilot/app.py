@@ -903,6 +903,10 @@ def main():
         LOG.setLevel(logging.INFO)
         LOG.info("started")
     window = tk.Tk()
+    if os.name == "nt":
+        icon = BASE / "assets" / "utka.ico"
+        if icon.is_file():
+            window.iconbitmap(default=str(icon))
     settings = load_settings()
     if args.installed and not (args.ui_test or args.launch_check):
         from .bootstrap import setup_window

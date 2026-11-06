@@ -18,7 +18,8 @@ OutputBaseFilename=Agent-Utka-Setup-v{#AppVersion}-x64
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-UninstallDisplayIcon={app}\python\pythonw.exe
+SetupIconFile={#PayloadDir}\assets\utka.ico
+UninstallDisplayIcon={app}\assets\utka.ico
 
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -27,8 +28,8 @@ Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Icons]
-Name: "{autoprograms}\Agent Utka"; Filename: "{app}\python\pythonw.exe"; Parameters: "-E -s -B -m copilot.app --installed"; WorkingDir: "{app}"
-Name: "{autodesktop}\Agent Utka"; Filename: "{app}\python\pythonw.exe"; Parameters: "-E -s -B -m copilot.app --installed"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\Agent Utka"; Filename: "{app}\python\pythonw.exe"; Parameters: "-E -s -B -m copilot.app --installed"; WorkingDir: "{app}"; IconFilename: "{app}\assets\utka.ico"
+Name: "{autodesktop}\Agent Utka"; Filename: "{app}\python\pythonw.exe"; Parameters: "-E -s -B -m copilot.app --installed"; WorkingDir: "{app}"; IconFilename: "{app}\assets\utka.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\python\pythonw.exe"; Parameters: "-E -s -B -m copilot.app --installed"; WorkingDir: "{app}"; Description: "Open Agent Utka"; Flags: nowait postinstall skipifsilent

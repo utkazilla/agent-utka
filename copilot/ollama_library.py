@@ -161,6 +161,11 @@ class LocalOllama:
     def running_models(self):
         return self._list("/api/ps")
 
+    def unload_model(self, model):
+        name = validate_ollama_model(model)
+        _json_request(self.start(), "/api/generate",
+                      {"model": name, "stream": False, "keep_alive": 0}, timeout=10)
+
     def pull(self, model, on_progress=lambda status, completed, total: None, cancelled=lambda: False):
         name = validate_ollama_model(model)
 

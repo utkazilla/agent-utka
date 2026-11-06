@@ -109,6 +109,7 @@ ssl.create_default_context()
 settings = load_settings()
 assert setup_needed(RUNTIME, settings)
 window = tk.Tk()
+window.iconbitmap(default=str(Path.cwd() / "assets" / "utka.ico"))
 
 def open_app(widget):
     if isinstance(widget, ttk.Button) and widget.cget('text') == 'Open app':

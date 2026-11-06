@@ -20,7 +20,7 @@ class OllamaHandler(BaseHTTPRequestHandler):
                  "details": {"quantization_level": "Q4_K_M", "parameter_size": "4B"}},
                 {"name": "cloud-alias:latest", "remote_host": "https://ollama.com"},
             ]},
-            "/api/ps": {"models": [{"name": "a-local:4b", "size": 1500, "size_vram": 700}]},
+            "/api/ps": {"models": self.server.running},
         }[self.path]
         self.reply(response)
 
@@ -31,6 +31,9 @@ class OllamaHandler(BaseHTTPRequestHandler):
             self.reply({"status": "pulling layer", "completed": 10, "total": 100}, {"status": "success"})
         elif self.path == "/api/chat":
             self.reply({"message": {"content": "{}"}, "done": True})
+        elif self.path == "/api/generate":
+            self.server.running = [item for item in self.server.running if item["name"] != data["model"]]
+            self.reply({"done": True, "done_reason": "unload"})
 
     def reply(self, *events):
         self.send_response(200)
@@ -44,6 +47,7 @@ class OllamaLibraryTest(unittest.TestCase):
         server = self.server = ThreadingHTTPServer(("127.0.0.1", 0), OllamaHandler)
         server.cloud_disabled = True
         server.requests = []
+        server.running = [{"name": "a-local:4b", "size": 1500, "size_vram": 700}]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(server.server_close)
@@ -78,6 +82,15 @@ class OllamaLibraryTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "OLLAMA_NO_CLOUD"):
             self.brain.pull("a-local:4b")
         self.assertEqual(self.server.requests, [])
+
+    def test_unload_releases_only_the_requested_model_and_keeps_files_installed(self):
+        self.server.running.append({"name": "other:latest", "size_vram": 300})
+        self.brain.unload_model("a-local:4b")
+        self.assertEqual([model.name for model in self.brain.running_models()], ["other:latest"])
+        self.assertEqual(self.brain.models(), ["a-local:4b"])
+        self.assertEqual(self.server.requests, [
+            ("/api/generate", {"model": "a-local:4b", "stream": False, "keep_alive": 0}),
+        ])
 
     def test_invalid_model_and_cancel_never_download(self):
         self.assertEqual(validate_ollama_model(" registry.ollama.ai/library/_model:8b "),

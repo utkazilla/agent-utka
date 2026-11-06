@@ -65,6 +65,7 @@ class SpeechPicker:
             **{variant: ("whisper", variant, "Faster Whisper", variant, size)
                for variant, size in WHISPER_MODELS.items()},
         }
+        self.saved_key = selected if selected in self.models else "qwen"
         self.installed = None
         self.stop = None
         self.after_id = None
@@ -109,8 +110,9 @@ class SpeechPicker:
         for key, (_engine, _variant, name, label, size) in self.models.items():
             size_label = self.t("Примерно {size:.1f} ГБ", size=size / 10**9) if size >= 10**9 else self.t(
                 "Примерно {size:.0f} МБ", size=size / 10**6)
-            self.table.insert("", "end", iid=key, values=(name, label, size_label, "…"))
-        self.table.selection_set(selected if selected in self.models else "qwen")
+            status = self.t("Выбрана") if key == self.saved_key else "…"
+            self.table.insert("", "end", iid=key, values=(name, label, size_label, status))
+        self.table.selection_set(self.saved_key)
         self.table.see(self.selected())
         self.table.bind("<<TreeviewSelect>>", self.update_action)
         self.update_action()
@@ -165,7 +167,8 @@ class SpeechPicker:
         self.update_action()
 
     def mark_status(self, key):
-        self.table.set(key, "status", self.t("Установлена" if key in self.installed else "Доступна для скачивания"))
+        status = "Выбрана" if key == self.saved_key else "Установлена" if key in self.installed else "Доступна для скачивания"
+        self.table.set(key, "status", self.t(status))
 
     def selected(self):
         return next(iter(self.table.selection()), None)
@@ -223,6 +226,9 @@ class SpeechPicker:
         except (OSError, ValueError) as error:
             self.feedback.set(self.t("Не удалось сохранить выбор. {detail}", detail=str(error)))
             return
+        previous, self.saved_key = self.saved_key, key
+        self.mark_status(previous)
+        self.mark_status(key)
         name = f"{name} · {variant}" if engine == "whisper" else name
         self.feedback.set(self.t("Модель {name} выбрана. Перезапусти Agent Utka для применения.", name=name))
 

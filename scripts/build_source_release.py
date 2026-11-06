@@ -15,6 +15,7 @@ PUBLIC_FILES = (
     "Setup Agent Utka.ps1",
     "Start Agent Utka.cmd",
     "assets/utka.png",
+    "assets/utka.ico",
     "copilot/__init__.py",
     "copilot/app.py",
     "copilot/asr_glossary.py",

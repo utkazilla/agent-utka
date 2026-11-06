@@ -1,4 +1,5 @@
 import queue
+import subprocess
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -35,6 +36,18 @@ COPY = {
         "Indica una dirección local como http://127.0.0.1:8090/search.",
     ),
     "Проверить VRAM": ("Refresh VRAM", "Actualizar VRAM"),
+    "Выгрузить модель": ("Unload model", "Descargar de memoria"),
+    "Диспетчер задач": ("Task Manager", "Administrador de tareas"),
+    "Выгружаю {name} из Ollama…": ("Unloading {name} from Ollama…", "Liberando {name} de Ollama…"),
+    "{name} выгружена из памяти Ollama.": ("{name} unloaded from Ollama.", "Se liberó {name} de la memoria de Ollama."),
+    "{name} всё ещё в памяти. Обнови VRAM после завершения запроса.": (
+        "{name} is still loaded. Refresh VRAM after the request finishes.",
+        "{name} sigue cargado. Actualiza la VRAM cuando termine la solicitud.",
+    ),
+    "Не удалось выгрузить {name}. {detail}": ("Couldn't unload {name}. {detail}", "No se pudo liberar {name}. {detail}"),
+    "Не удалось открыть Диспетчер задач. {detail}": (
+        "Couldn't open Task Manager. {detail}", "No se pudo abrir el Administrador de tareas. {detail}",
+    ),
     "Запрашиваю VRAM…": ("Checking VRAM…", "Consultando VRAM…"),
     "Свободно {free:.1f} из {total:.1f} ГиБ · {name}": (
         "{free:.1f} of {total:.1f} GiB free · {name}", "{free:.1f} de {total:.1f} GiB libres · {name}",
@@ -227,12 +240,15 @@ def show_settings(app):
     directory = tk.StringVar(value=settings["rag_directory"])
     feedback = tk.StringVar()
     vram = tk.StringVar()
+    loaded_model = tk.StringVar()
     feedback_message = ("Изменения применятся после перезапуска приложения.", {})
     poll_id = None
     vram_poll_id = None
     picker = None
     speech_picker = None
     vram_reading = None
+    measured_server = None
+    unloading = False
     model_keys = {"ollama": "ollama", "ollama_local": "ollama_model", "openai_local": "llm_model"}
     models = {key: settings[model_keys[key]] for key in BRAIN_PROVIDERS}
     urls = {"ollama": "", "ollama_local": settings["ollama_url"], "openai_local": settings["llm_url"]}
@@ -298,7 +314,12 @@ def show_settings(app):
     selected_model_label = app._label(row, var=model, bg=surface, size=9, wrap=240)
     gpu_row = tk.Frame(model_section, bg=surface)
     gpu_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-    app._label(gpu_row, var=vram, color=muted, bg=surface, size=9, wrap=390).pack(side="left", fill="x", expand=True)
+    app._label(gpu_row, var=vram, color=muted, bg=surface, size=9, wrap=500).pack(fill="x")
+    gpu_actions = tk.Frame(gpu_row, bg=surface)
+    gpu_actions.pack(fill="x", pady=(3, 0))
+    unload_row = tk.Frame(gpu_row, bg=surface)
+    loaded_box = combo(unload_row, loaded_model)
+    loaded_box.pack(side="left", fill="x", expand=True)
     knowledge_section = section("База знаний")
     retrieval_box = combo(field(knowledge_section, "Поиск по проекту", 1), retrieval)
     search_address = entry_field(knowledge_section, "Адрес API поиска", 2, rag_url)
@@ -453,7 +474,7 @@ def show_settings(app):
             load_installed=lambda: with_brain(lambda brain: brain.model_details()),
             download=lambda name, progress, cancelled: with_brain(
                 lambda brain: brain.pull(name, progress, cancelled)),
-            use_model=use_model, vram=vram,
+            use_model=use_model, vram=vram, selected=model.get(),
         )
 
     def fetch_compatible_models():
@@ -518,20 +539,31 @@ def show_settings(app):
                        size=item.size_vram / 1024**3) for item in running if item.size_vram is not None)
         vram.set("\n".join(lines))
 
-    def refresh_vram():
-        nonlocal vram_poll_id, vram_reading
+    def open_task_manager():
+        try:
+            subprocess.Popen(["Taskmgr.exe"])
+        except OSError as error:
+            show_error(error, "Не удалось открыть Диспетчер задач. {detail}")
+
+    def refresh_vram(unload=None):
+        nonlocal vram_poll_id, vram_reading, unloading
+        if unloading:
+            return
         if vram_poll_id is not None:
             popup.after_cancel(vram_poll_id)
         vram_reading = None
         render_vram()
         vram_button.state(["disabled"])
+        unload_row.pack_forget()
         options = brain_options()
+        server = (options["llm_provider"], options["ollama_url"])
+        unloading = unload is not None
         result = queue.SimpleQueue()
 
         def work():
-            devices = read_vram()
             running = []
             brain = None
+            error = None
             try:
                 key = options["llm_provider"]
                 if key == "ollama_local":
@@ -539,34 +571,68 @@ def show_settings(app):
                 elif key == "ollama" and app.settings["llm_provider"] == "ollama" and getattr(app.llm, "host", None):
                     brain = app.llm
                 if brain is not None:
+                    if unload is not None:
+                        brain.unload_model(unload)
                     running = brain.running_models()
-            except (OSError, ValueError, RuntimeError):
-                pass
+                elif unload is not None:
+                    raise RuntimeError("Локальный сервер уже закрыт.")
+            except (OSError, ValueError, RuntimeError) as exc:
+                error = exc
             finally:
                 if brain is not None and brain is not app.llm:
                     brain.close()
-            result.put((devices, running))
+            result.put((read_vram(), running, error))
 
         def read_result():
-            nonlocal vram_poll_id, vram_reading
+            nonlocal vram_poll_id, vram_reading, unloading, measured_server
             try:
-                vram_reading = result.get_nowait()
+                devices, running, error = result.get_nowait()
             except queue.Empty:
                 vram_poll_id = popup.after(100, read_result)
                 return
             vram_poll_id = None
+            unloading = False
             vram_button.state(["!disabled"])
+            measured_server = server
+            vram_reading = devices, running
+            names = [item.name for item in running]
+            loaded_box["values"] = names
+            if names:
+                if loaded_model.get() not in names:
+                    loaded_model.set(names[0])
+                unload_row.pack(fill="x", pady=(4, 0))
+            if unload is not None:
+                if error is not None:
+                    show_feedback("Не удалось выгрузить {name}. {detail}", error=True,
+                                  name=unload, detail=t(str(error)))
+                else:
+                    show_feedback("{name} всё ещё в памяти. Обнови VRAM после завершения запроса."
+                                  if unload in names else "{name} выгружена из памяти Ollama.", name=unload)
+                if (selected_provider, endpoint.get()) != server:
+                    refresh_vram()
+                    return
             render_vram()
             resize_to_form()
 
         threading.Thread(target=work, daemon=True).start()
         vram_poll_id = popup.after(100, read_result)
 
+    def unload_model():
+        if (selected_provider, endpoint.get()) != measured_server:
+            refresh_vram()
+            return
+        name = loaded_model.get()
+        if vram_reading is not None and any(item.name == name for item in vram_reading[1]):
+            show_feedback("Выгружаю {name} из Ollama…", name=name)
+            refresh_vram(unload=name)
+
     list_button = button(model_box.master, "Список", fetch_compatible_models)
     choose_model_button = button(model_box.master, "Выбрать модель…", choose_ollama_model, primary=True)
     button(builtin_speech_row, "Выбрать модель…", choose_speech_model, primary=True).pack(side="right")
-    vram_button = button(gpu_row, "Проверить VRAM", refresh_vram)
+    vram_button = button(gpu_actions, "Проверить VRAM", refresh_vram)
     vram_button.pack(side="right")
+    button(gpu_actions, "Диспетчер задач", open_task_manager).pack(side="left")
+    button(unload_row, "Выгрузить модель", unload_model).pack(side="right", padx=(6, 0))
 
     def save():
         try:
