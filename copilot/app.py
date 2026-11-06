@@ -750,7 +750,6 @@ class Overlay:
         text = self.source_text = tk.Text(panel, wrap="word", bg=SURFACE, fg=INK, padx=12, pady=10,
                                           font=("Segoe UI", 10), relief="flat", borderwidth=0)
         text.tag_configure("path", foreground=ACCENT, font=("Segoe UI", 10, "bold"))
-        text.tag_configure("location", foreground=MUTED, font=("Segoe UI", 9))
         text.pack(fill="both", expand=True)
         self._text_scrollbar(text)
         self._render_sources()
@@ -774,8 +773,9 @@ class Overlay:
         for i, source in enumerate(self.last_card.sources, 1):
             if not used or i in used:
                 location = self._tr("строка {line}", line=source.line)
-                text.insert("end", f"[{i}] {source.path.name} · {location}\n", "path")
-                text.insert("end", f"{source.path}\n", "location")
+                path = (source.path.relative_to(self.project).as_posix()
+                        if self.project and source.path.is_relative_to(self.project) else source.path.name)
+                text.insert("end", f"[{i}] {path} · {location}\n", "path")
                 text.insert("end", f"{source.text}\n\n")
         text.configure(state="disabled")
         text.yview_moveto(position)
@@ -964,7 +964,7 @@ def main():
             (("Токен обновляется через локальный шлюз.", [1]),
              ("Обновление токена выполняет локальный шлюз.", [1]),
              ("За обновление токена отвечает локальный шлюз.", [1])),
-            (Source(Path("demo.md"), 1, "Токен обновляется через локальный шлюз."),),
+            (Source(BASE / "docs" / "demo.md", 1, "Токен обновляется через локальный шлюз."),),
             "Варианты ответа")
         app._turn("card", (fragment, card, .9))
         assert layout() == expanded_layout, "Full suggestions moved the expanded overlay"
@@ -975,6 +975,8 @@ def main():
         app._toggle()
         app._show_sources()
         source_window = app.source_window
+        shown = app.source_text.get("1.0", "end")
+        assert "docs/demo.md" in shown and str(BASE) not in shown
         for event, value in (("hearing", None), ("asr", None), ("transcript", "Новая реплика")):
             app._turn(event, value)
             assert layout() == expanded_layout, f"{event} moved the expanded overlay"

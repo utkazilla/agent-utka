@@ -10,6 +10,16 @@ Agent Utka is a local AI assistant for technical calls on Windows. It transcribe
 2. **Ask.** Select a passage in the transcript and press **Ask** or **Ctrl+Enter**. Without a selection, the app uses the latest utterance. New speech keeps appearing while you read the answer.
 3. **Check the source.** The app searches the selected project and uses a local model to find a supporting excerpt. Open **Sources** to see the file and line number. If there is insufficient evidence, it shows **No answer in the knowledge base**. **History** lets you revisit previous answers.
 
+## See it in action
+
+In this demo, Qwen transcribed two spoken questions. Selecting the first one and pressing **Ask** searched the [Harry Potter demo file](docs/examples/harry-potter-demo.md) and returned an answer with a citation.
+
+![Agent Utka with the first of two transcribed questions selected](docs/screenshots/harry-potter-selection.jpg)
+
+![Agent Utka answering the selected question with a citation from the demo knowledge base](docs/screenshots/harry-potter-answer.jpg)
+
+[View the cited passage in Agent Utka](docs/screenshots/harry-potter-source.jpg).
+
 ## Quick start
 
 1. On a Windows 10 or 11 x64 PC, download `Agent-Utka-Setup-…-x64.exe` from [Releases](https://github.com/utkazilla/agent-utka/releases/latest) and double-click it. Python is included.

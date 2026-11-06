@@ -20,12 +20,26 @@ jobs:
         with:
           python-version: '3.13.17'
           architecture: x64
+      - name: Install test dependencies
+        shell: pwsh
+        run: |
+          $log = python -m pip --isolated --disable-pip-version-check install --only-binary=:all: -r requirements.txt 2>&1
+          $status = $LASTEXITCODE
+          $log
+          if ($status) {
+            "::error title=Python dependencies::$($log | Select-Object -Last 8 | Join-String -Separator '%0A')"
+            exit $status
+          }
       - name: Test source
         shell: pwsh
         run: |
-          python -m pip --isolated --disable-pip-version-check install --only-binary=:all: -r requirements.txt
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m unittest discover -s tests
+          $log = python -X utf8 -m unittest discover -s tests 2>&1
+          $status = $LASTEXITCODE
+          $log
+          if ($status) {
+            "::error title=Python tests::$($log | Select-Object -Last 35 | Join-String -Separator '%0A')"
+            exit $status
+          }
       - name: Build and smoke test the installer
         shell: pwsh
         run: |
@@ -36,7 +50,13 @@ jobs:
             Sort-Object { [version]$_.Parent.Parent.Name } -Descending | Select-Object -First 1 -ExpandProperty FullName
           if (!$crt -or !(Test-Path -LiteralPath $iscc)) { throw 'Missing Inno Setup or the x64 Visual C++ runtime.' }
           $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.1.0' }
-          python scripts/build_windows_installer.py --version $version --output dist --vc-redist $crt --iscc $iscc
+          $log = python -X utf8 scripts/build_windows_installer.py --version $version --output dist --vc-redist $crt --iscc $iscc 2>&1
+          $status = $LASTEXITCODE
+          $log
+          if ($status) {
+            "::error title=Windows installer::$($log | Select-Object -Last 22 | Join-String -Separator '%0A')"
+            exit $status
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: github.ref_type == 'tag'
         with:

@@ -95,8 +95,9 @@ def smoke_test(directory):
     env = {**os.environ, "PATH": str(Path(os.environ["SystemRoot"]) / "System32")}
     python = [str(directory / "python" / "python.exe"), "-E", "-s", "-B"]
     subprocess.run([*python, "-c", (
-        "import sys; from pathlib import Path; "
+        "import ssl, sys; from pathlib import Path; "
         "assert Path(sys.prefix) == Path.cwd() / 'python'; "
+        "ssl.create_default_context(); "
         "import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad; "
         "from copilot.bootstrap import setup_needed; "
         "from copilot.configuration import RUNTIME, load_settings; "
