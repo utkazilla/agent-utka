@@ -5,6 +5,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
+from .bootstrap import download_answer_model
 from .brains import BRAIN_PROVIDERS, create_brain, local_api_url, local_ollama_url
 from .configuration import BASE, RUNTIME, load_settings, save_settings
 from .hardware import read_vram
@@ -129,8 +130,9 @@ COPY = {
         "The server returned an unexpected format for the model list.",
         "El servidor devolvió un formato inesperado para la lista de modelos.",
     ),
-    "Локальный Ollama отсутствует. Запусти Setup Agent Utka.ps1.": (
-        "Local Ollama is missing. Run Setup Agent Utka.ps1.", "No se encuentra Ollama en el equipo. Ejecuta Setup Agent Utka.ps1.",
+    "Скачай модель ответов в настройках, чтобы установить встроенный Ollama.": (
+        "Download an answer model in Settings to install built-in Ollama.",
+        "Descarga un modelo de respuestas en Ajustes para instalar Ollama integrado.",
     ),
     "Ollama не запустился. См. .runtime/ollama-app.log.": (
         "Ollama did not start. See .runtime/ollama-app.log.", "Ollama no se inició. Consulta .runtime/ollama-app.log.",
@@ -465,15 +467,22 @@ def show_settings(app):
             if key == "ollama_local":
                 updates["ollama_url"] = options["ollama_url"]
             save_settings(updates)
+            if key == "ollama":
+                (RUNTIME / "installer-setup.complete").touch()
             models[key] = name
             model.set(name)
             show_feedback("Выбрана {model}. Перезапусти Agent Utka, чтобы использовать её для ответов.", model=name)
 
+        def load_installed():
+            if key == "ollama" and not (RUNTIME / "ollama" / "ollama.exe").is_file():
+                return []
+            return with_brain(lambda brain: brain.model_details())
+
         picker = show_model_picker(
             app, popup,
-            load_installed=lambda: with_brain(lambda brain: brain.model_details()),
+            load_installed=load_installed,
             download=lambda name, progress, cancelled: with_brain(
-                lambda brain: brain.pull(name, progress, cancelled)),
+                lambda brain: download_answer_model(brain, name, progress, cancelled)),
             use_model=use_model, vram=vram, selected=model.get(),
         )
 

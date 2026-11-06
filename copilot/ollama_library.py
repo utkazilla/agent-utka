@@ -98,7 +98,7 @@ class LocalOllama:
                 return self.host
             exe = self.runtime / "ollama" / "ollama.exe"
             if not exe.is_file():
-                raise FileNotFoundError("Локальный Ollama отсутствует. Запусти Setup Agent Utka.ps1.")
+                raise FileNotFoundError("Скачай модель ответов в настройках, чтобы установить встроенный Ollama.")
             with socket.socket() as port:
                 port.bind(("127.0.0.1", 0))
                 host = f"127.0.0.1:{port.getsockname()[1]}"

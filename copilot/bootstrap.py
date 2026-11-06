@@ -99,9 +99,25 @@ def _download_ollama(runtime, progress, cancelled):
         if not (staged / "ollama.exe").is_file():
             raise OSError("The Ollama archive is missing ollama.exe.")
         check_cancelled(cancelled)
-        if target.is_dir() and not target.is_junction() and not target.is_symlink():
-            target.rmdir()  # A previous setup may have left an empty directory.
-        staged.rename(target)
+        if (target / "ollama.exe").is_file():
+            return
+        try:
+            if target.is_dir() and not target.is_junction() and not target.is_symlink():
+                target.rmdir()  # A previous setup may have left an empty directory.
+            staged.rename(target)
+        except OSError:
+            if not (target / "ollama.exe").is_file():
+                raise
+
+
+def download_answer_model(brain, model, progress, cancelled):
+    try:
+        check_cancelled(cancelled)
+        if brain.external_host is None:
+            _download_ollama(brain.runtime, progress, cancelled)
+        return brain.pull(model, progress, cancelled)
+    except SetupCancelled:
+        return False
 
 
 def prepare_runtime(runtime, settings, progress, cancelled):

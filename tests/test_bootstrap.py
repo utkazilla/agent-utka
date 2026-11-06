@@ -4,11 +4,34 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from zipfile import ZipFile
 
-from copilot.bootstrap import _unpack_ollama, prepare_runtime, setup_needed
+from copilot.bootstrap import SetupCancelled, _unpack_ollama, download_answer_model, prepare_runtime, setup_needed
 from copilot.configuration import DEFAULTS
 
 
 class FirstRunTests(unittest.TestCase):
+    def test_picker_installs_missing_ollama_before_pulling_and_can_retry(self):
+        brain = Mock(external_host=None, runtime=Path("runtime"))
+        brain.pull.return_value = True
+        progress, cancelled = Mock(), Mock(return_value=False)
+        with patch("copilot.bootstrap._download_ollama", side_effect=SetupCancelled):
+            self.assertFalse(download_answer_model(brain, "qwen3.5:4b", progress, cancelled))
+            brain.pull.assert_not_called()
+        with patch("copilot.bootstrap._download_ollama") as install:
+            def pull(name, report, stop):
+                install.assert_called_once_with(brain.runtime, progress, cancelled)
+                self.assertEqual((name, report, stop), ("qwen3.5:4b", progress, cancelled))
+                return True
+            brain.pull.side_effect = pull
+            self.assertTrue(download_answer_model(brain, "qwen3.5:4b", progress, cancelled))
+
+    def test_picker_uses_configured_external_ollama_without_installing_portable_server(self):
+        brain = Mock(external_host="127.0.0.1:11434")
+        brain.pull.return_value = True
+        with patch("copilot.bootstrap._download_ollama") as install:
+            self.assertTrue(download_answer_model(brain, "qwen3.5:4b", Mock(), lambda: False))
+            install.assert_not_called()
+            brain.pull.assert_called_once()
+
     def test_first_run_prepares_defaults_and_can_be_skipped_for_external_engines(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = Path(directory)

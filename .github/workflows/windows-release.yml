@@ -90,6 +90,8 @@ jobs:
 
           The Start menu and desktop shortcuts use the Agent Utka duck icon. The answer and speech model pickers mark the saved selection. To free memory held by a loaded Ollama model, open **Settings**, select **Refresh VRAM**, choose the model, and select **Unload model**. Ollama can load it again for the next request.
 
+          If you skip first-run setup, **Download and select** in the answer model catalog now installs built-in Ollama before downloading the model.
+
           The installer was tested by installing and starting the app with its own Python. The SHA-256 file is provided for download verification.
 
           [See the transcript, selected question, and cited answer in the demo.](https://github.com/utkazilla/agent-utka#see-it-in-action)

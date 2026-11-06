@@ -18,6 +18,7 @@ COPY = {
     "Размер на диске": ("File size", "Tamaño en disco"),
     "Квантование": ("Quantization", "Cuantización"),
     "Установлена": ("Installed", "Instalado"),
+    "Не скачана": ("Not downloaded", "Sin descargar"),
     "Выбрана": ("Selected", "Seleccionado"),
     "Выбор в настройках · {name}": ("Selected in settings · {name}", "Selección guardada · {name}"),
     "Состояние": ("Status", "Estado"),
@@ -54,6 +55,8 @@ COPY = {
     "Закрыть": ("Close", "Cerrar"),
     "Выбери модель и размер.": ("Choose a model and size.", "Elige un modelo y un tamaño."),
     "Скачиваю {name}…": ("Downloading {name}…", "Descargando {name}…"),
+    "Скачиваю Ollama · {percent}%": ("Downloading Ollama · {percent}%", "Descargando Ollama · {percent}%"),
+    "Распаковываю Ollama…": ("Extracting Ollama…", "Extrayendo Ollama…"),
     "Скачиваю {name} · текущий слой {percent}%": (
         "Downloading {name} · current layer {percent}%", "Descargando {name} · capa actual {percent}%",
     ),
@@ -317,7 +320,11 @@ class ModelPicker:
         return self.tag(name) in (self.installed_names | self.downloaded)
 
     def variant_values(self, item):
-        status = "Выбрана" if self.is_saved(item.tag) else "Установлена" if self.is_installed(item.tag) else ""
+        installed = self.is_installed(item.tag)
+        if self.is_saved(item.tag):
+            status = "Выбрана" if installed else "Не скачана"
+        else:
+            status = "Установлена" if installed else ""
         return (item.tag, item.size or "—", self.t(status) if status else "")
 
     def refresh_installed(self):
@@ -376,8 +383,8 @@ class ModelPicker:
         def work():
             token = self.jobs["download"][0]
 
-            def progress(_status, completed, total):
-                self.events.put(("progress", "download", token, (name, completed, total), None))
+            def progress(status, completed, total):
+                self.events.put(("progress", "download", token, (name, status, completed, total), None))
 
             return self.download(name, progress, stop.is_set)
 
@@ -412,10 +419,18 @@ class ModelPicker:
         self.feedback.set(self.t("Выбрана {name}. Перезапусти Agent Utka, чтобы использовать её для ответов.",
                                  name=name))
 
-    def show_progress(self, name, completed, total):
-        if self.stop_download and not self.stop_download.is_set() and completed is not None and total:
-            percent = min(100, round(100 * completed / total))
+    def show_progress(self, name, status, completed, total):
+        if not self.stop_download or self.stop_download.is_set():
+            return
+        percent = min(100, round(100 * completed / total)) if completed is not None and total else None
+        if status == "Downloading Ollama" and percent is not None:
+            self.feedback.set(self.t("Скачиваю Ollama · {percent}%", percent=percent))
+        elif status == "Extracting Ollama":
+            self.feedback.set(self.t("Распаковываю Ollama…"))
+        elif percent is not None:
             self.feedback.set(self.t("Скачиваю {name} · текущий слой {percent}%", name=name, percent=percent))
+        else:
+            self.feedback.set(self.t("Скачиваю {name}…", name=name))
 
     def cancel_download(self):
         if self.stop_download:
