@@ -112,6 +112,9 @@ class Pipeline:
     def cancel_answer(self):
         self.cards.begin()
 
+    def cancel_speech(self):
+        self.asr.begin()
+
     def current(self, token, kind=None):
         queue = self.cards if self.manual and kind in ("card", "answer_error", "search_error") else self.asr
         return queue.is_current(token)

@@ -10,6 +10,24 @@ from copilot.retrieval import LocalSearch, SearchUnavailable, local_search_url
 
 
 class LocalRetrievalTests(unittest.TestCase):
+    def test_browse_reads_only_indexed_passages_in_the_selected_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory).resolve()
+            root, other = parent / "demo", parent / "other"
+            root.mkdir()
+            other.mkdir()
+            (root / "notes.md").write_text("# Demo\nThe token lifetime is 37 minutes.", encoding="utf-8")
+            (root / "credentials.md").write_text("Excluded", encoding="utf-8")
+            (other / "notes.md").write_text("# Other\nA different project.", encoding="utf-8")
+            knowledge = Knowledge(parent / "test.sqlite")
+            knowledge.refresh(root)
+            knowledge.refresh(other)
+            self.assertEqual(knowledge.index_files(root), ["notes.md"])
+            passage, = knowledge.index_passages(root, "notes.md")
+            self.assertEqual((passage.path, passage.line), (root / "notes.md", 1))
+            self.assertIn("37 minutes", passage.text)
+            self.assertEqual(knowledge.index_passages(root, "../other/notes.md"), [])
+
     def test_ranked_references_only_return_indexed_text_in_the_selected_project(self):
         requests = []
 

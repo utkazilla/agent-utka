@@ -12,10 +12,20 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from queue import Empty, SimpleQueue
 
+from .hardware import read_vram
+
 
 DEFAULT_WHISPER_MODEL = "large-v3"
 _PACKAGE = "faster-whisper"
 _VERSION = "1.2.1"
+_CTRANSLATE2 = "ctranslate2==4.8.5"
+WHISPER_DEVICES = {"auto": "Auto", "cpu": "CPU", "cuda": "NVIDIA GPU (CUDA)"}
+_GPU_PACKAGES = {
+    "nvidia-cublas-cu12": "12.9.2.10",
+    "nvidia-cudnn-cu12": "9.28.0.42",
+    "nvidia-cuda-nvrtc-cu12": "12.9.86",
+    "nvidia-cuda-runtime-cu12": "12.9.79",
+}
 _PROGRESS = "CALL_COPILOT_WHISPER_BYTES "
 
 
@@ -80,6 +90,13 @@ def whisper_installed(runtime, variant):
     return _package_installed() and whisper_cache_path(runtime, variant) is not None
 
 
+def whisper_cuda_installed():
+    try:
+        return all(version(package) == pin for package, pin in _GPU_PACKAGES.items())
+    except PackageNotFoundError:
+        return False
+
+
 def _run_worker(args, cancelled, progress=None):
     executable = Path(sys.executable)
     # The Windows launcher uses pythonw. The worker needs a stdout pipe.
@@ -139,11 +156,13 @@ def _run_worker(args, cancelled, progress=None):
         return False
 
 
-def install_whisper(runtime, variant, on_progress=lambda *_: None, cancelled=lambda: False):
+def install_whisper(runtime, variant, on_progress=lambda *_: None, cancelled=lambda: False, *, device="auto"):
     """Prepare the selected model. Return False when the caller cancels."""
     source = _source(variant)
     if cancelled():
         return False
+    if device == "cuda" and (os.name != "nt" or not read_vram()):
+        raise RuntimeError("Для режима GPU нужен доступный драйвер NVIDIA.")
     if not _package_installed():
         bundled = (Path(sys.executable).parent / "agent-utka-runtime").is_file()
         if sys.prefix == sys.base_prefix and not bundled:
@@ -151,13 +170,25 @@ def install_whisper(runtime, variant, on_progress=lambda *_: None, cancelled=lam
         on_progress("dependencies", None, None)
         code = _run_worker(
             ["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
-             "--index-url", "https://pypi.org/simple", "--only-binary=:all:", f"{_PACKAGE}=={_VERSION}"],
+             "--index-url", "https://pypi.org/simple", "--only-binary=:all:", f"{_PACKAGE}=={_VERSION}", _CTRANSLATE2],
             cancelled,
         )
         if code is False or cancelled():
             return False
         if code or not _package_installed():
             raise RuntimeError("Could not install Faster Whisper. Check your connection and try again.")
+    if device == "cuda" and not whisper_cuda_installed():
+        on_progress("cuda", None, None)
+        code = _run_worker(
+            ["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
+             "--index-url", "https://pypi.org/simple", "--only-binary=:all:", "--no-deps",
+             *(f"{package}=={pin}" for package, pin in _GPU_PACKAGES.items())],
+            cancelled,
+        )
+        if code is False or cancelled():
+            return False
+        if code or not whisper_cuda_installed():
+            raise RuntimeError("Не удалось установить библиотеки NVIDIA. Проверь интернет и повтори.")
     if whisper_cache_path(runtime, variant) is None:
         total = sum(source.files.values())
         on_progress("download", 0, total)
@@ -174,12 +205,15 @@ def install_whisper(runtime, variant, on_progress=lambda *_: None, cancelled=lam
     if whisper_cache_path(runtime, variant) is None:
         raise RuntimeError("The Faster Whisper download is incomplete.")
     code = _run_worker(
-        ["-m", "copilot.whisper_install", variant, str(Path(runtime).resolve()), "--verify"],
+        ["-m", "copilot.whisper_install", variant, str(Path(runtime).resolve()),
+         "--verify-cuda" if device == "cuda" else "--verify"],
         cancelled,
     )
     if code is False or cancelled():
         return False
     if code:
+        if device == "cuda":
+            raise RuntimeError("Faster Whisper не прошёл проверку CUDA. Проверь драйвер NVIDIA и свободную VRAM.")
         raise RuntimeError("Faster Whisper could not start. Check the Microsoft Visual C++ Runtime (x64).")
     return True
 
@@ -229,8 +263,17 @@ if __name__ == "__main__":
     parser.add_argument("variant", choices=WHISPER_MODELS)
     parser.add_argument("runtime", type=Path)
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--verify-cuda", action="store_true")
     arguments = parser.parse_args()
-    if arguments.verify:
+    if arguments.verify_cuda:
+        import numpy as np
+        from .speech import FasterWhisperASR, RATE
+
+        asr = FasterWhisperASR(arguments.runtime, variant=arguments.variant, device="cuda")
+        with asr._native_libraries():
+            features = asr.model.feature_extractor(np.zeros(RATE, dtype=np.float32))
+            asr.model.encode(features)
+    elif arguments.verify:
         _verify(arguments.runtime)
     else:
         _download(arguments.runtime, arguments.variant)

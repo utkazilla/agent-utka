@@ -27,6 +27,7 @@ PUBLIC_FILES = (
     "copilot/history.py",
     "copilot/i18n.py",
     "copilot/knowledge.py",
+    "copilot/knowledge_window.py",
     "copilot/knowledge_pack.py",
     "copilot/model_picker.py",
     "copilot/ollama_library.py",

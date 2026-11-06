@@ -19,7 +19,7 @@ from .knowledge_pack import create_workspace, import_documents, imported_documen
 from .pipeline import Pipeline
 from .retrieval import create_retriever
 from .settings_window import show_settings
-from .speech import create_asr, detect, loopback
+from .speech import SpeechSession, create_asr, detect, loopback
 from .suggest import MAX_OPTIONS, Advisor, Card
 
 
@@ -55,6 +55,8 @@ class Overlay:
         self.scan = threading.Event()
         self.llm_done = False
         self.pipeline = None
+        self.speech_session = None
+        self.speech_unloading = threading.Event()
         self.device_name = ""
         self.llm_status = ""
         self.llm = create_brain(RUNTIME, settings)
@@ -375,6 +377,8 @@ class Overlay:
         self._update_overlay_controls()
 
     def _toggle(self):
+        if self.speech_unloading.is_set():
+            return
         if self.live.is_set():
             self.live.clear()
             self._set_copy(self.listen_label, "Слушать")
@@ -494,18 +498,47 @@ class Overlay:
 
     def _boot_asr(self):
         try:
-            model = create_asr(RUNTIME, self.settings["stt_engine"],
-                               lambda msg: self.ui.put(("status", ("{error}", {"error": msg}))),
-                               url=self.settings["stt_url"], model=self.settings["stt_model"],
-                               whisper_model=self.settings["whisper_model"])
-            LOG.info("asr_ready model=%s device=%s", model.name, model.device)
+            self.speech_session = speech = SpeechSession(
+                lambda: create_asr(
+                    RUNTIME, self.settings["stt_engine"],
+                    lambda msg: self.ui.put(("status", ("{error}", {"error": msg}))),
+                    url=self.settings["stt_url"], model=self.settings["stt_model"],
+                    whisper_model=self.settings["whisper_model"], whisper_device=self.settings["whisper_device"],
+                ),
+                self.live.is_set,
+            )
+            speech.warm()
+            if loaded := speech.loaded():
+                LOG.info("asr_ready model=%s device=%s", *loaded)
             if self.closed.is_set():
                 return
-            self.pipeline = Pipeline(model, Advisor(self.index, self.llm, requested=True),
+            self.pipeline = Pipeline(speech, Advisor(self.index, self.llm, requested=True),
                                      lambda *event: self.ui.put(("turn", event)), manual=True)
             self._capture()
         except Exception as error:
             self.ui.put(("status", ("Распознавание не запустилось: {error}", {"error": str(error)})))
+
+    def unload_speech(self):
+        speech = self.speech_session
+        if self.settings["stt_engine"] == "openai_local" or speech is None or not speech.loaded():
+            return
+        if self.speech_unloading.is_set():
+            return
+        if self.live.is_set():
+            self._toggle()
+        if self.pipeline is not None:
+            self.pipeline.cancel_speech()
+        self.speech_unloading.set()
+
+        def work():
+            try:
+                speech.unload()
+            except (OSError, RuntimeError, ValueError) as error:
+                LOG.warning("speech_unload_failed %s", error)
+            finally:
+                self.speech_unloading.clear()
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _capture(self):
         while not self.closed.is_set():

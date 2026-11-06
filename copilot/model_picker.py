@@ -22,6 +22,17 @@ COPY = {
     "Выбрана": ("Selected", "Seleccionado"),
     "Выбор в настройках · {name}": ("Selected in settings · {name}", "Selección guardada · {name}"),
     "Состояние": ("Status", "Estado"),
+    "Выгрузить модель": ("Unload model", "Descargar de memoria"),
+    "В памяти · {models}": ("In memory · {models}", "En memoria · {models}"),
+    "В памяти Ollama нет моделей.": ("No models are loaded in Ollama.", "No hay modelos cargados en Ollama."),
+    "Не удалось проверить память Ollama.": ("Couldn't check Ollama memory.", "No se pudo comprobar la memoria de Ollama."),
+    "Выгружаю {name}…": ("Unloading {name}…", "Liberando {name}…"),
+    "{name} выгружена из памяти.": ("{name} unloaded.", "Se liberó {name} de la memoria."),
+    "{name} всё ещё в памяти. Обнови список после завершения запроса.": (
+        "{name} is still loaded. Refresh the list after the request finishes.",
+        "{name} sigue cargado. Actualiza la lista cuando termine la solicitud.",
+    ),
+    "Не удалось выгрузить модель. {detail}": ("Couldn't unload the model. {detail}", "No se pudo liberar el modelo. {detail}"),
     "Размер файлов указан для диска. Свободная VRAM показана отдельно.": (
         "File sizes are for disk storage. Free VRAM is shown separately.",
         "Los tamaños corresponden al disco. La VRAM libre se muestra por separado.",
@@ -71,14 +82,17 @@ COPY = {
 }
 
 
-def show_model_picker(app, parent, *, load_installed, download, use_model, vram, selected):
-    return ModelPicker(app, parent, load_installed, download, use_model, vram, selected).window
+def show_model_picker(app, parent, **options):
+    return ModelPicker(app, parent, **options).window
 
 
 class ModelPicker:
-    def __init__(self, app, parent, load_installed, download, use_model, vram, selected):
+    def __init__(self, app, parent, *, load_installed, download, use_model, vram, selected,
+                 current, load_running, unload, after_unload):
         self.app, self.language = app, app.ui_language
         self.load_installed, self.download, self.use_model = load_installed, download, use_model
+        self.load_running, self.unload, self.after_unload = load_running, unload, after_unload
+        self.running = {}
         self.window = w = tk.Toplevel(parent)
         self.bg = bg = parent.cget("bg")
         w.title(self.t("Модели Ollama"))
@@ -105,6 +119,7 @@ class ModelPicker:
         self.variant_status = tk.StringVar(w)
         self.installed_status = tk.StringVar(w)
         self.feedback = tk.StringVar(w, self.t("Выбери модель и размер."))
+        self.running_label = tk.StringVar(w)
 
         layout = tk.Frame(w, bg=bg, padx=14, pady=12)
         layout.pack(fill="both", expand=True)
@@ -112,6 +127,8 @@ class ModelPicker:
         controls.pack(side="bottom", fill="x")
         app._label(layout, self.t("Модели Ollama"), size=15, bold=True, bg=bg).pack(fill="x")
         app._label(layout, var=self.saved_label, color="#a9c9b6", size=10, bg=bg, wrap=680).pack(fill="x")
+        app._label(layout, var=current, size=9, bg=bg, wrap=680).pack(fill="x")
+        app._label(layout, var=self.running_label, size=9, bg=bg, wrap=680).pack(fill="x")
         app._label(layout, var=vram, color="#b1bbb2", size=9, bg=bg, wrap=680).pack(fill="x", pady=(2, 6))
         self.tabs = ttk.Notebook(layout)
         self.tabs.pack(fill="both", expand=True)
@@ -133,6 +150,8 @@ class ModelPicker:
         self.cancel = app._button(footer, self.t("Отменить загрузку"), self.cancel_download)
         self.cancel.pack(side="right", padx=6)
         app._button(footer, self.t("Закрыть"), w.destroy).pack(side="left")
+        self.unload_button = app._button(footer, self.t("Выгрузить модель"), self.unload_choice)
+        self.unload_button.pack(side="left", padx=6)
         self.update_action()
         w.bind("<Destroy>", self.cleanup)
         w.bind("<Escape>", lambda _: w.destroy())
@@ -329,6 +348,8 @@ class ModelPicker:
 
     def refresh_installed(self):
         self.installed_status.set(self.t("Получаю список установленных моделей…"))
+        if "unload" not in self.jobs:
+            self.run("running", self.load_running, self.render_running)
 
         def finish(items, error):
             if error is not None:
@@ -368,6 +389,44 @@ class ModelPicker:
         self.action.configure(text=self.t("Выбрать" if installed else "Скачать и выбрать"))
         self.action.state(["!disabled"] if name and self.stop_download is None else ["disabled"])
         self.cancel.state(["!disabled"] if self.stop_download and not self.stop_download.is_set() else ["disabled"])
+        can_unload = name and self.tag(name) in self.running and self.stop_download is None and "unload" not in self.jobs
+        self.unload_button.state(["!disabled"] if can_unload else ["disabled"])
+
+    def render_running(self, models, error):
+        self.running = {self.tag(model.name): model.name for model in models or ()}
+        if error is not None:
+            self.running_label.set(self.t("Не удалось проверить память Ollama."))
+        elif self.running:
+            self.running_label.set(self.t("В памяти · {models}", models=", ".join(self.running.values())))
+        else:
+            self.running_label.set(self.t("В памяти Ollama нет моделей."))
+        self.update_action()
+
+    def unload_choice(self):
+        selected, _ = self.current_choice()
+        name = self.running.get(self.tag(selected)) if selected else None
+        if name is None or "unload" in self.jobs or self.stop_download is not None:
+            return
+        self.jobs.pop("running", None)
+        self.feedback.set(self.t("Выгружаю {name}…", name=name))
+
+        def work():
+            self.unload(name)
+            return self.load_running()
+
+        def finish(models, error):
+            if error is not None:
+                self.feedback.set(self.t("Не удалось выгрузить модель. {detail}", detail=str(error)))
+                self.run("running", self.load_running, self.render_running)
+            else:
+                self.render_running(models, None)
+                self.feedback.set(self.t("{name} всё ещё в памяти. Обнови список после завершения запроса."
+                                         if self.tag(name) in self.running else "{name} выгружена из памяти.", name=name))
+            self.after_unload()
+            self.update_action()
+
+        self.run("unload", work, finish)
+        self.update_action()
 
     def choose(self):
         name, installed = self.current_choice()

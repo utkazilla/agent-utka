@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import threading
 import time
 import wave
 from collections import deque
@@ -241,6 +242,11 @@ class QwenASR:
         self.model.decode_stream(stream)
         return stream.result.text.strip()
 
+    def unload(self):
+        self.model = None
+        if self.processor is not None:
+            self.torch.cuda.empty_cache()
+
     def _decode_cuda(self, audio, glossary):
         messages = [{"role": "user", "content": [{"type": "audio", "audio": audio}]}]
         if glossary:
@@ -256,14 +262,16 @@ class QwenASR:
 
 
 class FasterWhisperASR:
-    def __init__(self, runtime, on_status=lambda msg: None, *, download=False, variant=DEFAULT_WHISPER_MODEL):
+    def __init__(self, runtime, on_status=lambda msg: None, *, download=False, variant=DEFAULT_WHISPER_MODEL,
+                 device="auto"):
         runtime = Path(runtime)
         self.name = f"{ASR_ENGINES['whisper']} {variant}"
         self.on_status = on_status
+        self.preferred_device = device
         self.dll_dirs = [runtime / "vc", *(Path(get_path("purelib")) / "nvidia").glob("*/bin")]
         on_status(f"Проверяю модель {self.name}…")
         if download:
-            install_whisper(runtime, variant)
+            install_whisper(runtime, variant, device=device)
         folder = whisper_cache_path(runtime, variant)
         if folder is None:
             raise FileNotFoundError(f"Модель {self.name} не скачана. Выбери её в настройках.")
@@ -282,7 +290,7 @@ class FasterWhisperASR:
         self.folder, self.model_class = folder, WhisperModel
         with self._native_libraries():
             try:
-                if get_cuda_device_count():
+                if device != "cpu" and get_cuda_device_count():
                     if os.name == "nt":
                         from ctypes import WinDLL
 
@@ -294,7 +302,11 @@ class FasterWhisperASR:
                         ]
                     self._load("cuda")
                     return
+                if device == "cuda":
+                    raise RuntimeError("Faster Whisper не видит доступный GPU NVIDIA.")
             except (OSError, RuntimeError, ValueError):
+                if device == "cuda":
+                    raise
                 on_status("Faster Whisper на GPU недоступен. Загружаю модель на CPU…")
             self._load("cpu")
 
@@ -325,12 +337,15 @@ class FasterWhisperASR:
             try:
                 return self._decode(audio, glossary)
             except (OSError, RuntimeError):
-                if self.device != "cuda":
+                if self.device != "cuda" or self.preferred_device == "cuda":
                     raise
             self.model = None
             self.on_status("Faster Whisper на GPU недоступен. Загружаю модель на CPU…")
             self._load("cpu")
             return self._decode(audio, glossary)
+
+    def unload(self):
+        self.model.model.unload_model()
 
     def _decode(self, audio, glossary):
         segments, _ = self.model.transcribe(
@@ -393,12 +408,46 @@ class LocalAudioTranscriptions:
         return text.strip()
 
 
+class SpeechSession:
+    def __init__(self, factory, listening):
+        self.factory, self.listening = factory, listening
+        self.model = None
+        self.lock = threading.Lock()
+
+    def _load(self):
+        if self.model is None:
+            self.model = self.factory()
+        return self.model
+
+    def warm(self):
+        with self.lock:
+            if self.listening():
+                self._load()
+
+    def loaded(self):
+        model = self.model
+        return (model.name, model.device) if model is not None else None
+
+    def __call__(self, pcm, glossary=""):
+        with self.lock:
+            if self.listening():
+                return self._load()(pcm, glossary)
+        return ""
+
+    def unload(self):
+        with self.lock:
+            model, self.model = self.model, None
+            if model is not None and hasattr(model, "unload"):
+                model.unload()
+
+
 def create_asr(runtime, engine="qwen", on_status=lambda msg: None, *, url="", model="", download=False,
-               whisper_model=DEFAULT_WHISPER_MODEL):
+               whisper_model=DEFAULT_WHISPER_MODEL, whisper_device="auto"):
     if engine == "qwen":
         return QwenASR(runtime, on_status)
     if engine == "whisper":
-        return FasterWhisperASR(runtime, on_status, download=download, variant=whisper_model)
+        return FasterWhisperASR(runtime, on_status, download=download, variant=whisper_model,
+                                device=whisper_device)
     if engine == "openai_local":
         return LocalAudioTranscriptions(url, model)
     raise ValueError(f"Неизвестный движок распознавания {engine!r}.")

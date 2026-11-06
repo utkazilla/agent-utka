@@ -99,7 +99,7 @@ def smoke_test(directory):
     env = {**os.environ, "PATH": str(Path(os.environ["SystemRoot"]) / "System32")}
     python = [str(directory / "python" / "python.exe"), "-E", "-s", "-B"]
     subprocess.run([*python, "-c", """
-import ssl, sys, tkinter as tk
+import ssl, sys, tempfile, time, tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 from unittest.mock import patch
@@ -107,7 +107,9 @@ import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad
 from copilot.app import Overlay
 from copilot.bootstrap import setup_needed, setup_window
 from copilot.configuration import RUNTIME, load_settings
+from copilot.knowledge import Knowledge
 from copilot.settings_window import show_settings
+from copilot.whisper_install import whisper_cuda_installed
 
 assert Path(sys.prefix).resolve() == Path.cwd() / 'python'
 ssl.create_default_context()
@@ -122,12 +124,18 @@ def invoke_button(widget, text):
         return True
     return any(invoke_button(child, text) for child in widget.winfo_children())
 
+def descendants(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from descendants(child)
+
 window.after_idle(lambda: invoke_button(window, 'Open app') or window.destroy())
 assert setup_window(window, settings)
 overlay = Overlay(window, settings, demo=True)
 try:
     window.update()
     assert window.winfo_viewable() and overlay.transcript.winfo_ismapped()
+    assert not whisper_cuda_installed()
     for language, suffix, label in (
         ('en', '', 'Copy prompt'),
         ('ru', '.ru', 'Копировать промпт'),
@@ -141,11 +149,39 @@ try:
             with patch.object(popup, 'clipboard_clear'), patch.object(popup, 'clipboard_append') as copy:
                 assert invoke_button(popup, label), label
                 copy.assert_called_once_with(template)
+            if language == 'en':
+                assert invoke_button(popup, 'Choose model…')
+                picker = next(child for child in popup.winfo_children() if isinstance(child, tk.Toplevel))
+                assert picker.title() == 'Speech recognition models'
+                picker.destroy()
         finally:
             popup.destroy()
+    with tempfile.TemporaryDirectory(prefix='utka-knowledge-smoke-') as directory:
+        project = Path(directory) / 'demo'
+        project.mkdir()
+        (project / 'notes.md').write_text('# Example: access token lifetime is 37 minutes.', encoding='utf-8')
+        overlay.project = project.resolve()
+        overlay.index = Knowledge(Path(directory) / 'index.sqlite')
+        assert overlay.index.refresh(overlay.project)[0] == 1
+        overlay.ui_language = 'en'
+        show_settings(overlay)
+        popup = overlay.settings_window
+        assert invoke_button(popup, 'Browse knowledge…')
+        browser = next(child for child in popup.winfo_children() if isinstance(child, tk.Toplevel))
+        assert browser.title() == 'Knowledge browser'
+        tree = next(child for child in descendants(browser) if isinstance(child, ttk.Treeview))
+        until = time.monotonic() + 5
+        while time.monotonic() < until:
+            window.update()
+            if [tree.set(row, 'source') for row in tree.get_children()] == ['notes.md']:
+                break
+            time.sleep(.05)
+        else:
+            raise AssertionError('The knowledge browser did not list the synthetic document.')
+        popup.destroy()
 finally:
     overlay.close()
-print('The setup dialog, main window, and all three prompt buttons passed with bundled Python.')
+print('The setup dialog, model picker, prompt buttons and knowledge browser passed with bundled Python.')
 """], cwd=directory, env=env, check=True, timeout=60)
     subprocess.run([*python, "-m", "pip", "--version"], cwd=directory, env=env, check=True, timeout=60)
 

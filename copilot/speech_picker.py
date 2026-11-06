@@ -6,7 +6,7 @@ from tkinter import ttk
 from .i18n import translate
 from .model_picker import COPY as MODEL_COPY
 from .qwen_install import QWEN_DOWNLOAD_BYTES, install_qwen, qwen_installed
-from .whisper_install import WHISPER_MODELS, install_whisper, whisper_installed
+from .whisper_install import WHISPER_DEVICES, WHISPER_MODELS, install_whisper, whisper_cuda_installed, whisper_installed
 
 
 COPY = {
@@ -27,6 +27,25 @@ COPY = {
         "Variante multilingüe de Faster Whisper. Los tamaños menores suelen ser más rápidos. La precisión depende del habla y el idioma.",
     ),
     "Устанавливаю Faster Whisper…": ("Installing Faster Whisper…", "Instalando Faster Whisper…"),
+    "Установить CUDA и выбрать": ("Install CUDA and select", "Instalar CUDA y seleccionar"),
+    "Устанавливаю cuBLAS и cuDNN для CUDA 12…": (
+        "Installing cuBLAS and cuDNN for CUDA 12…", "Instalando cuBLAS y cuDNN para CUDA 12…",
+    ),
+    "NVIDIA GPU · при первом выборе загрузится около 1,3 ГБ библиотек.": (
+        "NVIDIA GPU downloads about 1.3 GB of libraries the first time.",
+        "NVIDIA GPU descarga unos 1,3 GB de bibliotecas la primera vez.",
+    ),
+    "Для режима GPU нужен доступный драйвер NVIDIA.": (
+        "GPU mode requires a working NVIDIA driver.", "El modo GPU requiere un controlador NVIDIA operativo.",
+    ),
+    "Не удалось установить библиотеки NVIDIA. Проверь интернет и повтори.": (
+        "Couldn't install the NVIDIA libraries. Check your connection and try again.",
+        "No se pudieron instalar las bibliotecas NVIDIA. Comprueba la conexión e inténtalo de nuevo.",
+    ),
+    "Faster Whisper не прошёл проверку CUDA. Проверь драйвер NVIDIA и свободную VRAM.": (
+        "Faster Whisper failed its CUDA check. Check the NVIDIA driver and free VRAM.",
+        "Faster Whisper no pasó la prueba de CUDA. Comprueba el controlador NVIDIA y la VRAM libre.",
+    ),
     "Скачиваю файлы модели…": ("Downloading model files…", "Descargando los archivos del modelo…"),
     "Скачиваю файлы модели · {percent}%": ("Downloading model files · {percent}%", "Descargando los archivos del modelo · {percent}%"),
     "Проверяю файлы модели…": ("Checking model files…", "Verificando los archivos del modelo…"),
@@ -43,12 +62,12 @@ COPY = {
 }
 
 
-def show_speech_picker(app, parent, *, runtime, use_model, vram, selected="qwen"):
-    return SpeechPicker(app, parent, runtime, use_model, vram, selected).window
+def show_speech_picker(app, parent, *, runtime, use_model, vram, current, unload, selected, device):
+    return SpeechPicker(app, parent, runtime, use_model, vram, current, unload, selected, device).window
 
 
 class SpeechPicker:
-    def __init__(self, app, parent, runtime, use_model, vram, selected):
+    def __init__(self, app, parent, runtime, use_model, vram, current, unload, selected, device):
         self.language, self.runtime, self.use_model = app.ui_language, runtime, use_model
         self.window = w = tk.Toplevel(parent)
         w.title(self.t("Модели распознавания"))
@@ -67,6 +86,8 @@ class SpeechPicker:
         }
         self.saved_key = selected if selected in self.models else "qwen"
         self.installed = None
+        self.cuda_ready = False
+        self.current = current
         self.stop = None
         self.after_id = None
         self.events = queue.SimpleQueue()
@@ -77,7 +98,29 @@ class SpeechPicker:
         bottom = tk.Frame(frame, bg=bg)
         bottom.pack(side="bottom", fill="x")
         app._label(frame, self.t("Модели распознавания"), size=15, bold=True, bg=bg).pack(fill="x")
+        current_row = tk.Frame(frame, bg=bg)
+        current_row.pack(fill="x")
+        app._label(current_row, var=current, size=9, bg=bg).pack(side="left", fill="x", expand=True)
+        unload_button = app._button(current_row, self.t("Выгрузить модель"), unload)
+        unload_button.pack(side="right")
+
+        def update_unload(*_args):
+            session = app.speech_session
+            ready = (session is not None and session.loaded() and app.settings["stt_engine"] != "openai_local"
+                     and not app.speech_unloading.is_set())
+            unload_button.state(["!disabled"] if ready else ["disabled"])
+
+        self.current_trace = current.trace_add("write", update_unload)
+        update_unload()
         app._label(frame, var=vram, color="#b1bbb2", size=9, bg=bg, wrap=505).pack(fill="x", pady=(2, 6))
+        device_row = tk.Frame(frame, bg=bg)
+        device_row.pack(fill="x", pady=(0, 5))
+        app._label(device_row, "Faster Whisper", size=9, bg=bg).pack(side="left", padx=(0, 7))
+        self.device = ttk.Combobox(device_row, values=list(WHISPER_DEVICES.values()), state="readonly",
+                                   style="Copilot.TCombobox", width=22)
+        self.device.set(WHISPER_DEVICES.get(device, "Auto"))
+        self.device.pack(side="left")
+        self.device.bind("<<ComboboxSelected>>", self.update_action)
         app._label(bottom, var=self.details, color="#b1bbb2", size=9, bg=bg, wrap=505).pack(fill="x", pady=(5, 2))
         app._label(bottom, var=self.feedback, color="#a9c9b6", size=9, bg=bg, wrap=505).pack(fill="x")
         actions = tk.Frame(bottom, bg=bg)
@@ -154,10 +197,10 @@ class SpeechPicker:
     def check_installed(self):
         installed = {"qwen"} if qwen_installed(self.runtime) else set()
         installed.update(variant for variant in WHISPER_MODELS if whisper_installed(self.runtime, variant))
-        return installed
+        return installed, whisper_cuda_installed()
 
     def installed_checked(self, installed, error):
-        self.installed = installed if error is None else set()
+        self.installed, self.cuda_ready = installed if error is None else (set(), False)
         if error is None:
             self.feedback.set(self.t("Выбери модель распознавания."))
         else:
@@ -176,22 +219,30 @@ class SpeechPicker:
     def update_action(self, _event=None):
         key = self.selected()
         installed = self.installed is not None and key in self.installed
-        self.action.configure(text=self.t("Выбрать" if installed else "Скачать и выбрать"))
+        whisper = key is not None and key != "qwen"
+        self.device.state(["!disabled"] if whisper and self.stop is None else ["disabled"])
+        needs_cuda = whisper and self.device.get() == WHISPER_DEVICES["cuda"] and not self.cuda_ready
+        self.action.configure(text=self.t(
+            ("Установить CUDA и выбрать" if needs_cuda else "Выбрать") if installed else "Скачать и выбрать"))
         self.action.state(["!disabled"] if key and self.installed is not None and self.stop is None else ["disabled"])
         self.cancel.state(["!disabled"] if self.stop and not self.stop.is_set() else ["disabled"])
         if key:
-            self.details.set(self.t(
-                "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически."
-                if key == "qwen" else
-                "Многоязычный вариант Faster Whisper. Меньшие варианты обычно быстрее. Точность зависит от речи и языка."))
+            if key == "qwen":
+                detail = "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически."
+            elif needs_cuda:
+                detail = "NVIDIA GPU · при первом выборе загрузится около 1,3 ГБ библиотек."
+            else:
+                detail = "Многоязычный вариант Faster Whisper. Меньшие варианты обычно быстрее. Точность зависит от речи и языка."
+            self.details.set(self.t(detail))
 
     def choose(self):
         key = self.selected()
         if not key or self.installed is None or self.stop is not None:
             return
         engine, variant, *_ = self.models[key]
-        if key in self.installed:
-            self.apply(key)
+        device = next((name for name, label in WHISPER_DEVICES.items() if label == self.device.get()), "auto")
+        if key in self.installed and (engine == "qwen" or device != "cuda"):
+            self.apply(key, device)
             return
         stop = self.stop = threading.Event()
         self.feedback.set(self.t("Скачиваю файлы модели…"))
@@ -203,26 +254,28 @@ class SpeechPicker:
         def install():
             if engine == "qwen":
                 return install_qwen(self.runtime, progress, stop.is_set)
-            return install_whisper(self.runtime, variant, progress, stop.is_set)
+            return install_whisper(self.runtime, variant, progress, stop.is_set, device=device)
 
         def finish(complete, error):
             self.stop = None
             if stop.is_set() or (error is None and not complete):
                 self.feedback.set(self.t("Загрузка отменена."))
             elif error is not None:
-                self.feedback.set(self.t("Не удалось установить модель. {detail}", detail=str(error)))
+                self.feedback.set(self.t("Не удалось установить модель. {detail}", detail=self.t(str(error))))
             else:
                 self.installed.add(key)
                 self.mark_status(key)
-                self.apply(key)
+                if engine == "whisper" and device == "cuda":
+                    self.cuda_ready = True
+                self.apply(key, device)
             self.update_action()
 
         self.run(install, finish)
 
-    def apply(self, key):
+    def apply(self, key, device):
         engine, variant, name, *_ = self.models[key]
         try:
-            self.use_model(engine, variant)
+            self.use_model(engine, variant, device)
         except (OSError, ValueError) as error:
             self.feedback.set(self.t("Не удалось сохранить выбор. {detail}", detail=str(error)))
             return
@@ -235,6 +288,8 @@ class SpeechPicker:
     def update_progress(self, stage, completed, total):
         if stage == "dependencies":
             message = self.t("Устанавливаю Faster Whisper…")
+        elif stage == "cuda":
+            message = self.t("Устанавливаю cuBLAS и cuDNN для CUDA 12…")
         elif stage == "verify":
             message = self.t("Проверяю файлы модели…")
         elif completed is not None and total:
@@ -252,6 +307,7 @@ class SpeechPicker:
 
     def cleanup(self, event):
         if event.widget is self.window:
+            self.current.trace_remove("write", self.current_trace)
             if self.stop:
                 self.stop.set()
             if self.after_id is not None:

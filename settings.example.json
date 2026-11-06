@@ -7,6 +7,7 @@
   "llm_url": "http://127.0.0.1:1234/v1",
   "stt_engine": "qwen",
   "whisper_model": "large-v3",
+  "whisper_device": "auto",
   "stt_url": "http://127.0.0.1:8000/v1",
   "stt_model": "",
   "ui_language": "ru",

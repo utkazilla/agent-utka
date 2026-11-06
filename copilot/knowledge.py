@@ -335,6 +335,20 @@ class Knowledge:
             stamp = db.execute("SELECT refreshed FROM info WHERE project=?", (project,)).fetchone()
         return count, stamp[0] if stamp else None
 
+    def index_files(self, root):
+        with closing(self._connect()) as db:
+            return [row[0] for row in db.execute(
+                "SELECT path FROM files WHERE project=? AND indexed=1 ORDER BY path COLLATE NOCASE",
+                (str(Path(root).resolve()),))]
+
+    def index_passages(self, root, name):
+        root = Path(root).resolve()
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT line, body FROM passages WHERE project=? AND path=? ORDER BY CAST(line AS INTEGER)",
+                (str(root), name))
+            return [Source(root / name, int(line), body) for line, body in rows]
+
     def search(self, root, query, limit=4):
         root = Path(root).resolve()
         if self.retriever is not None:

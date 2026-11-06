@@ -10,11 +10,13 @@ from .brains import BRAIN_PROVIDERS, create_brain, local_api_url, local_ollama_u
 from .configuration import BASE, RUNTIME, load_settings, save_settings
 from .hardware import read_vram
 from .i18n import translate
+from .knowledge_window import show_knowledge_window
 from .model_picker import show_model_picker
 from .ollama_library import validate_ollama_model
 from .retrieval import RETRIEVAL_PROVIDERS, local_search_url
 from .speech import ASR_ENGINES
 from .speech_picker import show_speech_picker
+from .whisper_install import WHISPER_DEVICES
 
 
 COPY = {
@@ -38,6 +40,16 @@ COPY = {
     ),
     "Проверить VRAM": ("Refresh VRAM", "Actualizar VRAM"),
     "Выгрузить модель": ("Unload model", "Descargar de memoria"),
+    "Модель сеанса · {name}": ("Session model · {name}", "Modelo de la sesión · {name}"),
+    "В памяти · {name} · {device}": ("In memory · {name} · {device}", "En memoria · {name} · {device}"),
+    "Распознавание выгружается…": ("Unloading speech model…", "Liberando el modelo de voz…"),
+    "Модель распознавания не загружена.": ("No speech model is loaded.", "No hay un modelo de voz cargado."),
+    "Моделью управляет локальный сервер.": ("The local server manages the model.", "El servidor local gestiona el modelo."),
+    "Посмотреть индекс…": ("Browse knowledge…", "Explorar la base…"),
+    "Выбери проект или импортируй документы, чтобы открыть индекс.": (
+        "Choose a project or import documents to open the index.",
+        "Elige un proyecto o importa documentos para abrir el índice.",
+    ),
     "Диспетчер задач": ("Task Manager", "Administrador de tareas"),
     "Выгружаю {name} из Ollama…": ("Unloading {name} from Ollama…", "Liberando {name} de Ollama…"),
     "{name} выгружена из памяти Ollama.": ("{name} unloaded from Ollama.", "Se liberó {name} de la memoria de Ollama."),
@@ -234,6 +246,8 @@ def show_settings(app):
     stt_model = tk.StringVar(value=settings["stt_model"])
     stt_url = tk.StringVar(value=settings["stt_url"])
     builtin_model = tk.StringVar()
+    current_speech = tk.StringVar()
+    current_answer = tk.StringVar()
     provider = tk.StringVar()
     model = tk.StringVar()
     endpoint = tk.StringVar()
@@ -246,8 +260,10 @@ def show_settings(app):
     feedback_message = ("Изменения применятся после перезапуска приложения.", {})
     poll_id = None
     vram_poll_id = None
+    speech_poll_id = None
     picker = None
     speech_picker = None
+    knowledge_window = None
     vram_reading = None
     measured_server = None
     unloading = False
@@ -260,6 +276,7 @@ def show_settings(app):
     if builtin_stt not in ("qwen", "whisper"):
         builtin_stt = "qwen"
     whisper_model = settings.get("whisper_model", "large-v3")
+    whisper_device = settings["whisper_device"]
     stt_sources = ("Встроенные модели", ASR_ENGINES["openai_local"])
     selected_retrieval = settings["rag_provider"]
     if selected_retrieval not in RETRIEVAL_PROVIDERS:
@@ -308,6 +325,10 @@ def show_settings(app):
     builtin_speech_row = field(speech_section, "Модель распознавания", 4)
     app._label(builtin_speech_row, var=builtin_model, bg=surface, size=9, wrap=240).pack(
         side="left", fill="x", expand=True)
+    speech_status_row = tk.Frame(speech_section, bg=surface)
+    speech_status_row.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+    app._label(speech_status_row, var=current_speech, bg=surface, color=muted, size=9, wrap=360).pack(
+        side="left", fill="x", expand=True)
     model_section = section("Ответы")
     backend = combo(field(model_section, "Сервер ответов", 1), provider)
     address_row = entry_field(model_section, "Адрес локального сервера", 2, endpoint)
@@ -316,6 +337,7 @@ def show_settings(app):
     selected_model_label = app._label(row, var=model, bg=surface, size=9, wrap=240)
     gpu_row = tk.Frame(model_section, bg=surface)
     gpu_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+    app._label(gpu_row, var=current_answer, color=muted, bg=surface, size=9, wrap=500).pack(fill="x")
     app._label(gpu_row, var=vram, color=muted, bg=surface, size=9, wrap=500).pack(fill="x")
     gpu_actions = tk.Frame(gpu_row, bg=surface)
     gpu_actions.pack(fill="x", pady=(3, 0))
@@ -404,7 +426,41 @@ def show_settings(app):
         resize_to_form()
 
     def speech_name():
-        return f"Faster Whisper · {whisper_model}" if builtin_stt == "whisper" else ASR_ENGINES["qwen"]
+        if builtin_stt == "whisper":
+            return f"Faster Whisper · {whisper_model} · {WHISPER_DEVICES.get(whisper_device, 'Auto')}"
+        return ASR_ENGINES["qwen"]
+
+    def render_current_models():
+        actual = app.settings["stt_engine"]
+        speech = app.speech_session.loaded() if app.speech_session is not None else None
+        if actual == "openai_local":
+            status = f"{app.settings['stt_model']} · {t('Моделью управляет локальный сервер.')}"
+        elif app.speech_unloading.is_set():
+            status = t("Распознавание выгружается…")
+        elif speech is None:
+            status = t("Модель распознавания не загружена.")
+        else:
+            name, device = speech
+            status = t("В памяти · {name} · {device}", name=name, device=device.upper())
+        if current_speech.get() != status:
+            current_speech.set(status)
+        speech_unload.state(["!disabled"] if speech and actual != "openai_local"
+                            and not app.speech_unloading.is_set() else ["disabled"])
+        name = app.llm.model or "—"
+        status = t("Модель сеанса · {name}", name=name)
+        if app.settings["llm_provider"] == "openai_local":
+            status += f" · {t('Моделью управляет локальный сервер.')}"
+        if current_answer.get() != status:
+            current_answer.set(status)
+
+    def poll_speech():
+        nonlocal speech_poll_id
+        render_current_models()
+        speech_poll_id = popup.after(650, poll_speech)
+
+    def unload_speech():
+        app.unload_speech()
+        render_current_models()
 
     def choose_speech_model():
         nonlocal speech_picker
@@ -412,20 +468,22 @@ def show_settings(app):
             speech_picker.lift()
             return
 
-        def use_model(engine, variant):
-            nonlocal selected_stt, builtin_stt, whisper_model
+        def use_model(engine, variant, device):
+            nonlocal selected_stt, builtin_stt, whisper_model, whisper_device
             updates = {"stt_engine": engine, "stt_builtin_engine": engine}
             if engine == "whisper":
-                updates["whisper_model"] = variant
+                updates.update(whisper_model=variant, whisper_device=device)
             save_settings(updates)
             selected_stt = builtin_stt = engine
             if engine == "whisper":
                 whisper_model = variant
+                whisper_device = device
             update_fields()
             show_feedback("Сохранено. Настройки применятся при следующем запуске.")
 
         speech_picker = show_speech_picker(
             app, popup, runtime=RUNTIME, use_model=use_model, vram=vram,
+            current=current_speech, unload=unload_speech, device=whisper_device,
             selected=whisper_model if builtin_stt == "whisper" else "qwen",
         )
 
@@ -478,12 +536,17 @@ def show_settings(app):
                 return []
             return with_brain(lambda brain: brain.model_details())
 
+        def load_running():
+            return with_brain(lambda brain: brain.running_models() if brain.external_host or brain.host else [])
+
         picker = show_model_picker(
             app, popup,
             load_installed=load_installed,
             download=lambda name, progress, cancelled: with_brain(
                 lambda brain: download_answer_model(brain, name, progress, cancelled)),
-            use_model=use_model, vram=vram, selected=model.get(),
+            use_model=use_model, vram=vram, selected=model.get(), current=current_answer,
+            load_running=load_running, unload=lambda name: with_brain(lambda brain: brain.unload_model(name)),
+            after_unload=refresh_vram,
         )
 
     def fetch_compatible_models():
@@ -638,6 +701,8 @@ def show_settings(app):
     list_button = button(model_box.master, "Список", fetch_compatible_models)
     choose_model_button = button(model_box.master, "Выбрать модель…", choose_ollama_model, primary=True)
     button(builtin_speech_row, "Выбрать модель…", choose_speech_model, primary=True).pack(side="right")
+    speech_unload = button(speech_status_row, "Выгрузить модель", unload_speech)
+    speech_unload.pack(side="right", padx=(6, 0))
     vram_button = button(gpu_actions, "Проверить VRAM", refresh_vram)
     vram_button.pack(side="right")
     button(gpu_actions, "Диспетчер задач", open_task_manager).pack(side="left")
@@ -689,6 +754,18 @@ def show_settings(app):
           bg=surface, size=9, wrap=260).pack(side="left", fill="x", expand=True)
     button(prompt_row, "Копировать промпт", copy_prompt).pack(side="right", padx=(8, 0))
 
+    def browse_knowledge():
+        nonlocal knowledge_window
+        if knowledge_window is not None and knowledge_window.winfo_exists():
+            knowledge_window.lift()
+        elif app.project is None or app.index is None:
+            show_feedback("Выбери проект или импортируй документы, чтобы открыть индекс.")
+        else:
+            knowledge_window = show_knowledge_window(app, popup, app.index, app.project)
+
+    button(knowledge_section, "Посмотреть индекс…", browse_knowledge).grid(row=6, column=0, columnspan=2,
+                                                                        sticky="e", pady=(7, 0))
+
     def cleanup(event):
         if event.widget is not popup:
             return
@@ -696,6 +773,8 @@ def show_settings(app):
             popup.after_cancel(poll_id)
         if vram_poll_id is not None:
             popup.after_cancel(vram_poll_id)
+        if speech_poll_id is not None:
+            popup.after_cancel(speech_poll_id)
         app.settings_window = None
 
     def close(_event=None):
@@ -724,6 +803,7 @@ def show_settings(app):
         source, values = feedback_message
         feedback.set(t(source, **values))
         render_vram()
+        render_current_models()
         update_fields()
 
     popup.protocol("WM_DELETE_WINDOW", close)
@@ -732,4 +812,5 @@ def show_settings(app):
     popup.bind("<<UILanguageChanged>>", refresh_language)
     refresh_language()
     refresh_vram()
+    poll_speech()
     stt_box.focus_set()

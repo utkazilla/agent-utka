@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 import wave
+from unittest.mock import Mock
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,26 @@ from copilot.speech import RATE, create_asr
 
 
 class SpeechProviderTest(unittest.TestCase):
+    def test_unloading_speech_does_not_reload_until_listening_resumes(self):
+        from copilot.speech import SpeechSession
+
+        model = Mock(return_value="Hello", device="cuda")
+        model.name = "Whisper"
+        factory = Mock(return_value=model)
+        live = threading.Event()
+        live.set()
+        speech = SpeechSession(factory, live.is_set)
+        self.assertEqual(speech(b"audio", ""), "Hello")
+        self.assertEqual(speech.loaded(), ("Whisper", "cuda"))
+        live.clear()
+        speech.unload()
+        self.assertIsNone(speech.loaded())
+        self.assertEqual(speech(b"audio", ""), "")
+        factory.assert_called_once()
+        live.set()
+        self.assertEqual(speech(b"audio", ""), "Hello")
+        self.assertEqual(factory.call_count, 2)
+
     def test_configured_local_provider_posts_wav_and_optional_vocabulary(self):
         requests = []
 

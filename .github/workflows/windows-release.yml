@@ -94,6 +94,8 @@ jobs:
 
           **Copy prompt** in Knowledge base settings includes the English, Russian, and Spanish templates.
 
+          For Faster Whisper, choose **NVIDIA GPU (CUDA)** to install and verify cuBLAS and cuDNN on demand. The speech controls show the model in memory and can unload it. Ollama models can also be unloaded from the model picker. Open **Settings → Knowledge base → Browse knowledge** to inspect indexed documents and test retrieval.
+
           The installer was tested by installing and starting the app with its own Python. The SHA-256 file is provided for download verification.
 
           [See the transcript, selected question, and cited answer in the demo.](https://github.com/utkazilla/agent-utka#see-it-in-action)

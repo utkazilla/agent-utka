@@ -13,7 +13,7 @@ from zipfile import ZipFile
 from .brains import create_brain
 from .configuration import RUNTIME
 from .qwen_install import install_qwen, qwen_installed
-from .whisper_install import install_whisper, whisper_installed
+from .whisper_install import install_whisper, whisper_cuda_installed, whisper_installed
 
 
 OLLAMA_URL = (
@@ -37,8 +37,11 @@ def check_cancelled(cancelled):
 def setup_needed(runtime, settings):
     if settings["stt_engine"] == "qwen" and not qwen_installed(runtime):
         return True
-    if settings["stt_engine"] == "whisper" and not whisper_installed(runtime, settings["whisper_model"]):
-        return True
+    if settings["stt_engine"] == "whisper":
+        if not whisper_installed(runtime, settings["whisper_model"]):
+            return True
+        if settings.get("whisper_device") == "cuda" and not whisper_cuda_installed():
+            return True
     if settings["llm_provider"] == "ollama":
         return not all(path.is_file() for path in (
             runtime / "ollama" / "ollama.exe",
@@ -129,9 +132,12 @@ def prepare_runtime(runtime, settings, progress, cancelled):
             if not install_qwen(runtime, lambda _, done, total: progress("Preparing Qwen speech recognition", done, total),
                                 cancelled):
                 return False
-        elif engine == "whisper" and not whisper_installed(runtime, settings["whisper_model"]):
+        elif engine == "whisper" and (not whisper_installed(runtime, settings["whisper_model"])
+                                      or settings.get("whisper_device") == "cuda"):
             if not install_whisper(runtime, settings["whisper_model"],
-                                   lambda _, done, total: progress("Preparing Faster Whisper", done, total), cancelled):
+                                   lambda stage, done, total: progress(
+                                       "Installing NVIDIA CUDA libraries" if stage == "cuda" else "Preparing Faster Whisper",
+                                       done, total), cancelled, device=settings.get("whisper_device", "auto")):
                 return False
         check_cancelled(cancelled)
         if settings["llm_provider"] == "ollama":

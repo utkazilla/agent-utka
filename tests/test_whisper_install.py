@@ -8,6 +8,20 @@ from copilot.whisper_install import _Source, _run_worker, install_whisper, whisp
 
 
 class WhisperInstallationTests(unittest.TestCase):
+    def test_explicit_gpu_installs_pinned_cuda_libraries_for_an_existing_model(self):
+        with (
+            patch("copilot.whisper_install.read_vram", return_value=[object()]),
+            patch("copilot.whisper_install._package_installed", return_value=True),
+            patch("copilot.whisper_install.whisper_cache_path", return_value=Path("snapshot")),
+            patch("copilot.whisper_install.whisper_cuda_installed", side_effect=[False, True]),
+            patch("copilot.whisper_install._run_worker", return_value=0) as worker,
+        ):
+            self.assertTrue(install_whisper(".", "tiny", device="cuda"))
+        install, verify = (call.args[0] for call in worker.call_args_list)
+        self.assertIn("nvidia-cublas-cu12==12.9.2.10", install)
+        self.assertIn("nvidia-cudnn-cu12==9.28.0.42", install)
+        self.assertIn("--verify-cuda", verify)
+
     def test_snapshot_status_checks_weights_and_required_files(self):
         files = {"config.json": b"config", "model.bin": b"weights", "tokenizer.json": b"tokens"}
         source = _Source("publisher/model", "example", {name: len(data) for name, data in files.items()})
