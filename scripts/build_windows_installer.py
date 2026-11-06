@@ -14,7 +14,8 @@ from pathlib import Path
 from build_source_release import PUBLIC_FILES, ROOT, public_file
 
 
-PYTHON_FILES = ("python.exe", "pythonw.exe", "python312.dll", "python3.dll", "LICENSE.txt",
+PYTHON_DLL = f"python{sys.version_info.major}{sys.version_info.minor}.dll"
+PYTHON_FILES = ("python.exe", "pythonw.exe", PYTHON_DLL, "python3.dll", "LICENSE.txt",
                 "vcruntime140.dll", "vcruntime140_1.dll")
 MODEL_EXTENSIONS = {".gguf", ".ggml", ".onnx", ".ort", ".safetensors", ".pt", ".pth",
                     ".ckpt", ".tflite", ".h5", ".bin", ".npy", ".npz"}
@@ -137,8 +138,9 @@ def main():
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version):
         parser.error("--version must be in MAJOR.MINOR.PATCH form")
-    if sys.platform != "win32" or platform.machine().upper() != "AMD64" or sys.version_info[:2] != (3, 12):
-        parser.error("building requires x64 Windows and Python 3.12 with Tk")
+    if (sys.platform != "win32" or platform.machine().upper() != "AMD64"
+            or sys.version_info[:2] not in {(3, 12), (3, 13)}):
+        parser.error("building requires x64 Windows and Python 3.12 or 3.13 with Tk")
     output = args.output.resolve()
     output.mkdir(parents=True)
     payload = output / "payload"

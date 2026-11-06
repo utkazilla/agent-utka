@@ -30,4 +30,4 @@ If you attach a ZIP to a GitHub Release, create a fresh one from the reviewed so
 
 The [Windows workflow](../.github/workflows/windows-release.yml) builds and tests the installer on Windows. Pushing a release tag like `v0.1.0` publishes the tested `.exe` and its SHA-256 checksum. The installer stages an explicit list of app files, Python, and wheels from PyPI. It rejects known model file extensions and local data paths. Ollama and the speech and answer models are downloaded from their original distributors on the user's PC.
 
-For a local build, use Windows x64, Python 3.12 with Tk, Inno Setup 6, and the official x64 C++ Redistributable DLLs from your Visual Studio installation. See `python scripts/build_windows_installer.py --help`. The build tests a silent installation with the bundled interpreter and uninstalls the test copy.
+For a local build, use Windows x64, Python 3.12 or 3.13 with Tk, Inno Setup 6, and the official x64 C++ Redistributable DLLs from your Visual Studio installation. See `python scripts/build_windows_installer.py --help`. The build tests a silent installation with the bundled interpreter and uninstalls the test copy.

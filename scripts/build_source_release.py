@@ -45,6 +45,7 @@ PUBLIC_FILES = (
     "docs/knowledge-pack-prompt.ru.md",
     "docs/knowledge-pack-prompt.es.md",
     "docs/examples/orbit-knowledge.md",
+    "docs/examples/harry-potter-demo.md",
     "docs/examples/local-search-demo.py",
     "installer/agent-utka.iss",
     "scripts/build_source_release.py",
