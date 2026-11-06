@@ -892,6 +892,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ui-test", action="store_true")
     ap.add_argument("--launch-check", action="store_true")
+    ap.add_argument("--installed", action="store_true")
     args = ap.parse_args()
     RUNTIME.mkdir(exist_ok=True)
     if not args.ui_test:
@@ -903,6 +904,12 @@ def main():
         LOG.info("started")
     window = tk.Tk()
     settings = load_settings()
+    if args.installed and not (args.ui_test or args.launch_check):
+        from .bootstrap import setup_window
+
+        if not setup_window(window, settings):
+            window.destroy()
+            return
     if args.ui_test:
         settings["ui_language"] = "ru"
     app = Overlay(window, settings, demo=args.ui_test)

@@ -12,16 +12,11 @@ Agent Utka is a local AI assistant for technical calls on Windows. It transcribe
 
 ## Quick start
 
-You need an x64 Windows PC, **Python 3.12 x64 with Tk**, and a playback device. Install Git if you plan to index Git worktrees. The first setup needs internet access and several gigabytes of disk space. [Windows installation guide](docs/tutorial.md#install-on-windows)
+1. On a Windows 10 or 11 x64 PC, download `Agent-Utka-Setup-…-x64.exe` from [Releases](https://github.com/utkazilla/agent-utka/releases/latest) and double-click it. Python is included.
+2. Open **Agent Utka** from Start. Choose **Download and start** to fetch the default Qwen speech and Ollama answer models. Allow about 6 GB of downloads and 12 GB of free disk space during setup. Models are stored on your PC. If you already run compatible local services, choose **Open app** and configure them under **Settings**.
+3. After launch, choose English, Russian, or Spanish from the flag menu. Git is optional and helps the app identify files to index in Git worktrees.
 
-Clone this repository or use **Code → Download ZIP** and extract it. In PowerShell, open the project folder and run:
-
-~~~powershell
-& '.\Setup Agent Utka.ps1'
-& '.\Start Agent Utka.cmd'
-~~~
-
-Setup installs dependencies and downloads Qwen3-ASR and the default Ollama answer model, `qwen3.5:4b`. Use `-SkipCuda` on the setup command to skip optional NVIDIA speech packages and weights. After launch, the flag menu lets you switch between English, Russian, and Spanish.
+[Windows tutorial](docs/tutorial.md#install-on-windows) · [Run from source](docs/tutorial.md#run-from-source)
 
 ### Try your first answer
 

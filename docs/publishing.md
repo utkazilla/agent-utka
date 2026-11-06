@@ -25,3 +25,9 @@ The script has an explicit list of public source, docs, and generic tests. The Z
 4. Open the GitHub repository as a signed-out visitor and check that the README, tutorial links, example file, and license are visible. The [GitHub guide to adding local code](https://docs.github.com/en/repositories/creating-and-managing-repositories/adding-locally-hosted-code-to-github) covers authentication and repository setup.
 
 If you attach a ZIP to a GitHub Release, create a fresh one from the reviewed source and license. Keep user settings and model data on the machine that runs the app.
+
+## Windows installer
+
+The [Windows workflow](../.github/workflows/windows-release.yml) builds and tests the installer on Windows. Pushing a release tag like `v0.1.0` publishes the tested `.exe` and its SHA-256 checksum. The installer stages an explicit list of app files, Python, and wheels from PyPI. It rejects known model file extensions and local data paths. Ollama and the speech and answer models are downloaded from their original distributors on the user's PC.
+
+For a local build, use Windows x64, Python 3.12 with Tk, Inno Setup 6, and the official x64 C++ Redistributable DLLs from your Visual Studio installation. See `python scripts/build_windows_installer.py --help`. The build tests a silent installation with the bundled interpreter and uninstalls the test copy.

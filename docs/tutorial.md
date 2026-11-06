@@ -2,6 +2,14 @@
 
 ## Install on Windows
 
+1. Download the x64 `.exe` installer from [GitHub Releases](https://github.com/utkazilla/agent-utka/releases/latest) and double-click it on Windows 10 or 11. Python and the app's dependencies are included. The release provides a SHA-256 checksum for the installer.
+2. Launch **Agent Utka** from the Start menu. Click **Download and start** to prepare Qwen3-ASR, portable Ollama, and the `qwen3.5:4b` answer model. The initial download is about 6 GB; allow about 12 GB free for downloads and extraction. If you already run compatible local services, click **Open app** and configure them in Settings.
+3. Wait for the audio status to show that the app is listening. Select English, Russian, or Spanish from the flag menu. The app saves your choice for the next run.
+
+The default install folder is `%LOCALAPPDATA%\Programs\Agent Utka`. Models and indexes stay in `.runtime` inside that folder. The default installer setup uses the CPU bundle for Qwen. To install another speech or Ollama model, use the pickers in **Settings**.
+
+## Run from source
+
 1. Extract the source ZIP or clone the repository into a writable folder, such as `C:\Apps\Agent Utka`. Use an x64 Windows PC with a playback device.
 2. Install 64-bit Python 3.12 with Tk support and either the Python launcher or `python.exe` on PATH. Install Git if you want to index Git worktrees. If a native dependency reports a missing DLL, install the Microsoft Visual C++ Redistributable for x64. [Python for Windows](https://www.python.org/downloads/windows/) · [Git for Windows](https://git-scm.com/install/windows) · [Microsoft runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
 3. Open PowerShell in the application folder and run setup. The first run needs internet access and several gigabytes of disk space. The defaults download Qwen3-ASR and the `qwen3.5:4b` model for portable Ollama. Add `-SkipCuda` to skip optional NVIDIA speech packages and weights. Ollama manages its own CPU/GPU placement.
@@ -78,7 +86,7 @@ Open **Settings** to choose your providers. The model pickers save your selectio
 
 1. Open **Settings → Speech recognition → Choose model…**. If a local speech server is selected, switch the source to **Built-in models** to open the picker. Compare the model file sizes and check which ones are installed. The picker includes Qwen3-ASR 0.6B and multilingual Faster Whisper variants `tiny`, `base`, `small`, `medium`, `large-v3-turbo`, and `large-v3`. [Faster Whisper model list](https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/utils.py)
 2. Select a model and click **Download and select** or **Select** if it is installed. Agent Utka downloads the weights and installs the Faster Whisper dependency if needed. It saves the selected speech engine and model when installation finishes. Canceling a download keeps your previous selection. Restart Agent Utka to use the chosen model. The picker shows download size and, when available, free VRAM on your NVIDIA GPU.
-3. The picker installs the CPU INT8 bundle for Qwen3-ASR. Qwen and Faster Whisper use CUDA if their GPU requirements are already met, and can run on CPU. To set up the optional NVIDIA packages, close the app and run `Setup Agent Utka.ps1` with the speech engine selected.
+3. The picker installs the CPU INT8 bundle for Qwen3-ASR. Qwen and Faster Whisper can run on CPU. When running from source, use `Setup Agent Utka.ps1` with the speech engine selected to install optional NVIDIA packages. The installer also supports connecting to a separate local speech server that uses your GPU.
 
 For a separate service, choose **Local OpenAI-compatible STT**, enter its numeric loopback base URL, for example `http://127.0.0.1:8000/v1`, and set the model ID the server expects. The server manages its own models. Agent Utka sends each segment as 16 kHz mono WAV to `POST /v1/audio/transcriptions`. The service must accept multipart `file`, `model`, `response_format=json`, and an optional `prompt`, and return JSON with a string `text` field. One possible server is Speaches with an installed model such as `Systran/faster-whisper-small`. [Speaches transcription API](https://speaches.ai/usage/speech-to-text/) · [Speaches model discovery](https://speaches.ai/usage/model-discovery/)
 

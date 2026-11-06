@@ -60,8 +60,7 @@ class OllamaLibraryTest(unittest.TestCase):
         self.assertEqual(local_ollama_url(self.address + "/v1"), self.address)
         self.assertEqual(self.brain.models(), ["a-local:4b"])
         model, = self.brain.model_details()
-        self.assertEqual((model.name, model.size, model.quantization, model.parameters),
-                         ("a-local:4b", 1000, "Q4_K_M", "4B"))
+        self.assertEqual((model.name, model.size, model.quantization), ("a-local:4b", 1000, "Q4_K_M"))
         running, = self.brain.running_models()
         self.assertEqual((running.size, running.size_vram), (1500, 700))
         progress = []

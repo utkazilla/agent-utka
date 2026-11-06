@@ -7,6 +7,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_FILES = (
+    ".github/workflows/windows-release.yml",
     ".gitignore",
     "README.md",
     "requirements.txt",
@@ -17,6 +18,7 @@ PUBLIC_FILES = (
     "copilot/__init__.py",
     "copilot/app.py",
     "copilot/asr_glossary.py",
+    "copilot/bootstrap.py",
     "copilot/brains.py",
     "copilot/catalog.py",
     "copilot/configuration.py",
@@ -44,7 +46,10 @@ PUBLIC_FILES = (
     "docs/knowledge-pack-prompt.es.md",
     "docs/examples/orbit-knowledge.md",
     "docs/examples/local-search-demo.py",
+    "installer/agent-utka.iss",
     "scripts/build_source_release.py",
+    "scripts/build_windows_installer.py",
+    "tests/test_bootstrap.py",
     "tests/test_catalog.py",
     "tests/test_configuration.py",
     "tests/test_core.py",

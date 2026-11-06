@@ -1,0 +1,72 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main]
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+          architecture: x64
+      - name: Test source
+        shell: pwsh
+        run: |
+          python -m pip --isolated --disable-pip-version-check install --only-binary=:all: -r requirements.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests
+      - name: Build and smoke test the installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $visualStudio = & $vswhere -latest -products '*' -property installationPath
+          $crt = Get-ChildItem -Path (Join-Path $visualStudio 'VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT') -Directory |
+            Sort-Object { [version]$_.Parent.Parent.Name } -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (!$crt -or !(Test-Path -LiteralPath $iscc)) { throw 'Missing Inno Setup or the x64 Visual C++ runtime.' }
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.1.0' }
+          python scripts/build_windows_installer.py --version $version --output dist --vc-redist $crt --iscc $iscc
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.ref_type == 'tag'
+        with:
+          name: windows-installer
+          path: |
+            dist/*.exe
+            dist/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-installer
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum --check ./*.sha256
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Agent Utka $GITHUB_REF_NAME" --notes-file - ./*.exe ./*.sha256 <<'NOTES'
+          Download and double-click the Windows x64 setup file. Open **Agent Utka** from Start after installation. Python is included; no terminal or separate Python install is required.
+
+          Choose **Download and start** to download Qwen speech recognition and Ollama with the default answer model. The initial download is about 6 GB. Keep about 12 GB free for downloading and extracting the files. Models stay on your PC. You can also open the app and configure existing local services in Settings.
+
+          The installer was tested by installing and starting the app with its own Python. The SHA-256 file is provided for download verification.
+          NOTES

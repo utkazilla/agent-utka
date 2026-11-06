@@ -88,7 +88,7 @@ def _run_worker(args, cancelled, progress=None):
     if cancelled():
         return False
     with subprocess.Popen(
-        [str(executable), "-X", "utf8", *args],
+        [str(executable), "-E", "-s", "-B", "-X", "utf8", *args],
         cwd=Path(__file__).resolve().parents[1],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -145,17 +145,19 @@ def install_whisper(runtime, variant, on_progress=lambda *_: None, cancelled=lam
     if cancelled():
         return False
     if not _package_installed():
-        if sys.prefix == sys.base_prefix:
+        bundled = (Path(sys.executable).parent / "agent-utka-runtime").is_file()
+        if sys.prefix == sys.base_prefix and not bundled:
             raise RuntimeError("Run Setup Agent Utka.ps1 to create the app's Python environment.")
         on_progress("dependencies", None, None)
         code = _run_worker(
-            ["-m", "pip", "--disable-pip-version-check", "install", "--only-binary=:all:", f"{_PACKAGE}=={_VERSION}"],
+            ["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
+             "--index-url", "https://pypi.org/simple", "--only-binary=:all:", f"{_PACKAGE}=={_VERSION}"],
             cancelled,
         )
         if code is False or cancelled():
             return False
         if code or not _package_installed():
-            raise RuntimeError("Could not install Faster Whisper. Check your connection and run Setup Agent Utka.ps1 if needed.")
+            raise RuntimeError("Could not install Faster Whisper. Check your connection and try again.")
     if whisper_cache_path(runtime, variant) is None:
         total = sum(source.files.values())
         on_progress("download", 0, total)

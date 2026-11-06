@@ -11,7 +11,6 @@ from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
-OLLAMA_LIBRARY_URL = "https://ollama.com/library"
 CONTEXT_SIZE = 6144
 _MODEL_PART = r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}"
 _NAMESPACE = r"[A-Za-z0-9_][A-Za-z0-9_-]{0,79}"
@@ -46,31 +45,11 @@ def _byte_count(value):
     return value if type(value) is int and value >= 0 else None
 
 
-def library_model_size(model):
-    """Read the public manifest size, including layers, without pulling any weights."""
-    match = _MODEL_NAME.fullmatch(validate_ollama_model(model))
-    namespace, name, tag = match["namespace"] or "library", match["name"], match["tag"] or "latest"
-    request = Request(
-        f"https://registry.ollama.ai/v2/{namespace}/{name}/manifests/{tag}",
-        headers={"Accept": "application/vnd.docker.distribution.manifest.v2+json"},
-    )
-    with build_opener(_NoRedirect()).open(request, timeout=8) as response:
-        manifest = json.load(response)
-    try:
-        sizes = [_byte_count(entry["size"]) for entry in [manifest["config"], *manifest["layers"]]]
-    except (KeyError, TypeError) as error:
-        raise ValueError("Не удалось прочитать размер модели из каталога Ollama.") from error
-    if any(size is None for size in sizes):
-        raise ValueError("Не удалось прочитать размер модели из каталога Ollama.")
-    return sum(sizes)
-
-
 @dataclass(frozen=True)
 class OllamaModel:
     name: str
     size: int | None
     quantization: str
-    parameters: str
     size_vram: int | None
 
 
@@ -170,7 +149,6 @@ class LocalOllama:
                 details = {}
             models.append(OllamaModel(name, _byte_count(item.get("size")),
                                       details.get("quantization_level") or "",
-                                      details.get("parameter_size") or "",
                                       _byte_count(item.get("size_vram"))))
         return sorted(models, key=lambda model: model.name.casefold())
 
