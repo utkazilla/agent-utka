@@ -95,18 +95,38 @@ def smoke_test(directory):
     directory = directory.resolve()
     env = {**os.environ, "PATH": str(Path(os.environ["SystemRoot"]) / "System32")}
     python = [str(directory / "python" / "python.exe"), "-E", "-s", "-B"]
-    subprocess.run([*python, "-c", (
-        "import ssl, sys; from pathlib import Path; "
-        "assert Path(sys.prefix).resolve() == Path.cwd() / 'python'; "
-        "ssl.create_default_context(); "
-        "import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad; "
-        "from copilot.bootstrap import setup_needed; "
-        "from copilot.configuration import RUNTIME, load_settings; "
-        "assert setup_needed(RUNTIME, load_settings())"
-    )], cwd=directory, env=env, check=True, timeout=60)
+    subprocess.run([*python, "-c", """
+import ssl, sys, tkinter as tk
+from pathlib import Path
+from tkinter import ttk
+import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad
+from copilot.app import Overlay
+from copilot.bootstrap import setup_needed, setup_window
+from copilot.configuration import RUNTIME, load_settings
+
+assert Path(sys.prefix).resolve() == Path.cwd() / 'python'
+ssl.create_default_context()
+settings = load_settings()
+assert setup_needed(RUNTIME, settings)
+window = tk.Tk()
+
+def open_app(widget):
+    if isinstance(widget, ttk.Button) and widget.cget('text') == 'Open app':
+        widget.invoke()
+        return True
+    return any(open_app(child) for child in widget.winfo_children())
+
+window.after_idle(lambda: open_app(window) or window.destroy())
+assert setup_window(window, settings)
+overlay = Overlay(window, settings, demo=True)
+try:
+    window.update()
+    assert window.winfo_viewable() and overlay.transcript.winfo_ismapped()
+finally:
+    overlay.close()
+print('The installed setup dialog and main window opened with bundled Python.')
+"""], cwd=directory, env=env, check=True, timeout=60)
     subprocess.run([*python, "-m", "pip", "--version"], cwd=directory, env=env, check=True, timeout=60)
-    subprocess.run([*python, "-m", "copilot.app", "--installed", "--ui-test"], cwd=directory,
-                   env=env, check=True, timeout=60)
 
 
 def compile_installer(iscc, version, payload, output):
