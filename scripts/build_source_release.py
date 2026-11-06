@@ -50,6 +50,7 @@ PUBLIC_FILES = (
     "docs/examples/harry-potter-demo.md",
     "docs/examples/local-search-demo.py",
     "docs/screenshots/harry-potter-answer.jpg",
+    "docs/screenshots/harry-potter-rag.jpg",
     "docs/screenshots/harry-potter-selection.jpg",
     "docs/screenshots/harry-potter-source.jpg",
     "installer/agent-utka.iss",

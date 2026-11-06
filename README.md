@@ -20,6 +20,12 @@ In this demo, Qwen transcribed two spoken questions. Selecting the first one and
 
 [View the cited passage in Agent Utka](docs/screenshots/harry-potter-source.jpg).
 
+### See what the RAG search retrieved
+
+Select a project or import documents, then open **Settings → Knowledge base → Browse knowledge…**. Enter a question and click **Test retrieval**. Select a result to read the indexed passage and its source line.
+
+![Agent Utka's knowledge browser showing three ranked passages for a question about Hedwig](docs/screenshots/harry-potter-rag.jpg)
+
 ## Quick start
 
 1. On a Windows 10 or 11 x64 PC, download `Agent-Utka-Setup-…-x64.exe` from [Releases](https://github.com/utkazilla/agent-utka/releases/latest) and double-click it. Python is included.
