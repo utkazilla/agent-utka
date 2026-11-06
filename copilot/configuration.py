@@ -2,6 +2,8 @@ import json
 import tempfile
 from pathlib import Path
 
+from .speech import DEFAULT_QWEN_MODEL, QWEN_ASR_MODELS
+
 
 BASE = Path(__file__).resolve().parents[1]
 RUNTIME = BASE / ".runtime"
@@ -15,6 +17,7 @@ DEFAULTS = {
     "llm_model": "",
     "llm_url": "http://127.0.0.1:1234/v1",
     "stt_engine": "qwen",
+    "qwen_model": DEFAULT_QWEN_MODEL,
     "whisper_model": "large-v3",
     "whisper_device": "auto",
     "stt_url": "http://127.0.0.1:8000/v1",
@@ -38,6 +41,9 @@ def load_settings(path=LOCAL_SETTINGS):
     settings = {**DEFAULTS, **_local_settings(path)}
     if settings["ui_language"] not in UI_LANGUAGES:
         settings["ui_language"] = DEFAULTS["ui_language"]
+    qwen = settings["qwen_model"]
+    if not isinstance(qwen, str) or qwen not in QWEN_ASR_MODELS:
+        settings["qwen_model"] = DEFAULT_QWEN_MODEL
     return settings
 
 

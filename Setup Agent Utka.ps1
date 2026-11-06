@@ -38,9 +38,9 @@ if (!(Test-Path -LiteralPath $venvPython)) {
 & $venvPython -m pip install -r requirements.txt
 if ($LASTEXITCODE) { throw 'Python dependencies could not be installed.' }
 
-$selected = & $venvPython -X utf8 -c "from copilot.configuration import load_settings; s = load_settings(); print(s['stt_engine']); print(s['llm_provider'])"
-if ($LASTEXITCODE -or $selected.Count -ne 2) { throw 'Could not read Agent Utka settings.' }
-$sttEngine, $llmProvider = $selected
+$selected = & $venvPython -X utf8 -c "from copilot.configuration import load_settings; s = load_settings(); print(s['stt_engine']); print(s['llm_provider']); print(s['qwen_model'])"
+if ($LASTEXITCODE -or $selected.Count -ne 3) { throw 'Could not read Agent Utka settings.' }
+$sttEngine, $llmProvider, $qwenModel = $selected
 $useCuda = !$SkipCuda -and (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
 New-Item -ItemType Directory -Force -Path '.runtime' | Out-Null
 
@@ -53,7 +53,7 @@ if ($llmProvider -eq 'ollama' -and !(Test-Path -LiteralPath '.runtime/ollama/oll
     Remove-Item -LiteralPath '.runtime/ollama.zip'
 }
 
-if ($sttEngine -eq 'qwen') {
+if ($sttEngine -eq 'qwen' -and $qwenModel -eq '0.6b-int8') {
     $asrModel = 'sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25'
     $asrFiles = @{
         'conv_frontend.onnx' = 44148281
@@ -89,7 +89,7 @@ if ($sttEngine -eq 'qwen') {
     }
 }
 
-if ($sttEngine -eq 'qwen' -and $useCuda) {
+if ($sttEngine -eq 'qwen' -and $qwenModel -eq '0.6b-int8' -and $useCuda) {
     try {
         & $venvPython -X utf8 -m pip install 'torch==2.11.0+cu128' --extra-index-url 'https://download.pytorch.org/whl/cu128'
         if ($LASTEXITCODE) { throw 'Could not install PyTorch CUDA.' }

@@ -158,7 +158,12 @@ try:
                 assert [tabs.tab(tab, 'text') for tab in (catalog, installed)] == ['Catalog', 'Installed']
                 search = next(child for child in descendants(catalog) if isinstance(child, ttk.Entry))
                 models = next(child for child in descendants(catalog) if isinstance(child, ttk.Treeview))
-                assert len(models.get_children()) == 18
+                assert len(models.get_children()) == 19
+                search.insert(0, 'Qwen')
+                window.update()
+                assert models.get_children() == ('0.6b-int8', '1.7b-int8')
+                assert models.set('1.7b-int8', 'model') == 'Qwen3-ASR 1.7B'
+                search.delete(0, 'end')
                 search.insert(0, 'DISTIL')
                 window.update()
                 assert len(models.get_children()) == 5

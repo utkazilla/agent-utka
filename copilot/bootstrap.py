@@ -13,6 +13,7 @@ from zipfile import ZipFile
 from .brains import create_brain
 from .configuration import RUNTIME
 from .qwen_install import install_qwen, qwen_installed
+from .speech import DEFAULT_QWEN_MODEL
 from .whisper_install import install_whisper, whisper_cuda_installed, whisper_installed
 
 
@@ -35,7 +36,7 @@ def check_cancelled(cancelled):
 
 
 def setup_needed(runtime, settings):
-    if settings["stt_engine"] == "qwen" and not qwen_installed(runtime):
+    if settings["stt_engine"] == "qwen" and not qwen_installed(runtime, settings.get("qwen_model", DEFAULT_QWEN_MODEL)):
         return True
     if settings["stt_engine"] == "whisper":
         if not whisper_installed(runtime, settings["whisper_model"]):
@@ -128,9 +129,10 @@ def prepare_runtime(runtime, settings, progress, cancelled):
     try:
         check_cancelled(cancelled)
         engine = settings["stt_engine"]
-        if engine == "qwen" and not qwen_installed(runtime):
+        qwen_model = settings.get("qwen_model", DEFAULT_QWEN_MODEL)
+        if engine == "qwen" and not qwen_installed(runtime, qwen_model):
             if not install_qwen(runtime, lambda _, done, total: progress("Preparing Qwen speech recognition", done, total),
-                                cancelled):
+                                cancelled, variant=qwen_model):
                 return False
         elif engine == "whisper" and (not whisper_installed(runtime, settings["whisper_model"])
                                       or settings.get("whisper_device") == "cuda"):

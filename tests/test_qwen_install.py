@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from copilot import qwen_install as qwen
+from copilot.configuration import load_settings, save_settings
+from copilot.speech import create_asr
 
 
 class QwenInstallTest(unittest.TestCase):
@@ -79,3 +81,29 @@ class QwenInstallTest(unittest.TestCase):
 
         self.assertFalse(self.install(self.archive(), on_progress=progress, cancelled=lambda: stopped))
         self.assertEqual(list(self.runtime.iterdir()), [])
+
+    def test_install_17b_checks_each_file_and_preserves_other_variant(self):
+        files = {name: (len(data), hashlib.sha256(data).hexdigest()) for name, data in self.files.items()}
+        self.bundle.mkdir()
+        old = self.bundle / "keep.txt"
+        old.write_text("previous bundle", encoding="utf-8")
+        with patch.object(qwen, "_LARGE_FILES", files), patch.object(qwen, "urlopen") as fetch:
+            fetch.side_effect = [io.BytesIO(b"x" * len(next(iter(self.files.values()))))]
+            with self.assertRaisesRegex(OSError, "checksum"):
+                qwen.install_qwen(self.runtime, variant="1.7b-int8")
+            self.assertEqual(list(self.runtime.iterdir()), [self.bundle])
+
+            fetch.side_effect = [io.BytesIO(data) for data in self.files.values()]
+            self.assertTrue(qwen.install_qwen(self.runtime, variant="1.7b-int8"))
+            self.assertTrue(qwen.qwen_installed(self.runtime, "1.7b-int8"))
+            self.assertFalse(qwen.qwen_installed(self.runtime))
+            self.assertEqual(old.read_text(encoding="utf-8"), "previous bundle")
+
+    def test_recognizer_uses_the_saved_qwen_variant(self):
+        settings = self.runtime / "settings.json"
+        self.assertEqual(load_settings(settings)["qwen_model"], "0.6b-int8")
+        save_settings({"qwen_model": "1.7b-int8"}, settings)
+        with patch("copilot.speech.QwenASR._load_cpu", autospec=True) as cpu:
+            recognizer = create_asr(self.runtime, qwen_model=load_settings(settings)["qwen_model"])
+            self.assertEqual(recognizer.name, "Qwen3-ASR 1.7B")
+            cpu.assert_called_once_with(recognizer)

@@ -48,7 +48,7 @@ Select a project folder with **Folder…** or import UTF-8 Markdown and text fil
 
 | Component | Built in | Optional local service |
 | --- | --- | --- |
-| Speech recognition | Qwen3-ASR 0.6B INT8 and 17 Faster Whisper variants | OpenAI-compatible `POST /v1/audio/transcriptions` |
+| Speech recognition | Qwen3-ASR 0.6B and 1.7B INT8, plus 17 Faster Whisper variants | OpenAI-compatible `POST /v1/audio/transcriptions` |
 | Answers | Portable Ollama | An existing Ollama instance with cloud features disabled, or an OpenAI-compatible chat server with JSON Schema support |
 | Project search | SQLite FTS5 | A local search API that returns project-relative file paths and line numbers |
 

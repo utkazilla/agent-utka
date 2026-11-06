@@ -5,7 +5,8 @@ from tkinter import ttk
 
 from .i18n import translate
 from .model_picker import COPY as MODEL_COPY
-from .qwen_install import QWEN_DOWNLOAD_BYTES, install_qwen, qwen_installed
+from .qwen_install import QWEN_DOWNLOAD_SIZES, install_qwen, qwen_installed
+from .speech import DEFAULT_QWEN_MODEL, QWEN_ASR_MODELS, QWEN_LARGE_MODEL
 from .whisper_install import WHISPER_DEVICES, WHISPER_MODELS, install_whisper, whisper_cuda_installed, whisper_installed
 
 
@@ -27,6 +28,10 @@ COPY = {
     "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически.": (
         "Qwen downloads the INT8 CPU package. The app uses CUDA automatically if it is already configured.",
         "Qwen descarga el paquete INT8 para CPU. La aplicación usa CUDA si ya está configurada.",
+    ),
+    "Qwen3-ASR 1.7B INT8 работает на CPU и требует больше оперативной памяти, чем 0.6B.": (
+        "Qwen3-ASR 1.7B INT8 runs on CPU and uses more system memory than 0.6B.",
+        "Qwen3-ASR 1.7B INT8 usa la CPU y requiere más memoria RAM que 0.6B.",
     ),
     "Устанавливаю Faster Whisper…": ("Installing Faster Whisper…", "Instalando Faster Whisper…"),
     "Установить CUDA и выбрать": ("Install CUDA and select", "Instalar CUDA y seleccionar"),
@@ -82,11 +87,12 @@ class SpeechPicker:
         w.minsize(min(650, width), min(430, height))
         w.geometry(f"{width}x{height}")
         self.models = {
-            "qwen": ("qwen", "0.6b-int8", "Qwen3-ASR 0.6B", "INT8 · CPU", QWEN_DOWNLOAD_BYTES),
+            **{variant: ("qwen", variant, name, "INT8 · CPU", QWEN_DOWNLOAD_SIZES[variant])
+               for variant, (name, _bundle) in QWEN_ASR_MODELS.items()},
             **{variant: ("whisper", variant, "Faster Whisper", variant, size)
                for variant, size in WHISPER_MODELS.items()},
         }
-        self.saved_key = selected if selected in self.models else "qwen"
+        self.saved_key = selected if selected in self.models else DEFAULT_QWEN_MODEL
         self.installed = None
         self.cuda_ready = False
         self.current = current
@@ -243,7 +249,7 @@ class SpeechPicker:
         self.after_id = self.window.after(80, poll)
 
     def check_installed(self):
-        installed = {"qwen"} if qwen_installed(self.runtime) else set()
+        installed = {variant for variant in QWEN_ASR_MODELS if qwen_installed(self.runtime, variant)}
         installed.update(variant for variant in WHISPER_MODELS if whisper_installed(self.runtime, variant))
         return installed, whisper_cuda_installed()
 
@@ -276,7 +282,7 @@ class SpeechPicker:
         table = self.active_table()
         key = next(iter(table.selection()), None)
         installed = self.installed is not None and key in self.installed
-        whisper = key is not None and key != "qwen"
+        whisper = key is not None and self.models[key][0] == "whisper"
         self.device.state(["!disabled"] if whisper and self.stop is None else ["disabled"])
         needs_cuda = whisper and self.device.get() == WHISPER_DEVICES["cuda"] and not self.cuda_ready
         self.action.configure(text=self.t(
@@ -288,7 +294,9 @@ class SpeechPicker:
             detail = "Модели не найдены. Попробуй другое название."
         elif table is self.installed_table and self.installed == set():
             detail = "Установленных моделей пока нет. Скачай модель из каталога."
-        elif key == "qwen":
+        elif key == QWEN_LARGE_MODEL:
+            detail = "Qwen3-ASR 1.7B INT8 работает на CPU и требует больше оперативной памяти, чем 0.6B."
+        elif key == DEFAULT_QWEN_MODEL:
             detail = "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически."
         elif needs_cuda:
             detail = "NVIDIA GPU · при первом выборе загрузится около 1,3 ГБ библиотек."
@@ -312,7 +320,7 @@ class SpeechPicker:
 
         def install():
             if engine == "qwen":
-                return install_qwen(self.runtime, progress, stop.is_set)
+                return install_qwen(self.runtime, progress, stop.is_set, variant=variant)
             return install_whisper(self.runtime, variant, progress, stop.is_set, device=device)
 
         def finish(complete, error):

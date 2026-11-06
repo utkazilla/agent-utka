@@ -20,6 +20,12 @@ FRAME_MS = 20
 FRAME_BYTES = RATE * FRAME_MS // 1000 * 2
 QWEN_ASR_BUNDLE = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
 QWEN_ASR_CUDA_BUNDLE = "qwen3-asr-0.6b-hf"
+DEFAULT_QWEN_MODEL = "0.6b-int8"
+QWEN_LARGE_MODEL = "1.7b-int8"
+QWEN_ASR_MODELS = {
+    DEFAULT_QWEN_MODEL: ("Qwen3-ASR 0.6B", QWEN_ASR_BUNDLE),
+    QWEN_LARGE_MODEL: ("Qwen3-ASR 1.7B", "sherpa-onnx-qwen3-asr-1.7b-int8"),
+}
 ASR_ENGINES = {
     "qwen": "Qwen3-ASR 0.6B",
     "whisper": "Faster Whisper",
@@ -176,13 +182,12 @@ def loopback(stop, on_device=lambda name: None):
 
 
 class QwenASR:
-    name = ASR_ENGINES["qwen"]
-
-    def __init__(self, runtime, on_status=lambda msg: None):
+    def __init__(self, runtime, on_status=lambda msg: None, *, variant=DEFAULT_QWEN_MODEL):
         self.runtime, self.on_status = Path(runtime), on_status
+        self.name, self.bundle = QWEN_ASR_MODELS[variant]
         self.processor = None
         cuda = self.runtime / QWEN_ASR_CUDA_BUNDLE
-        if (cuda / "model.safetensors").is_file():
+        if variant == DEFAULT_QWEN_MODEL and (cuda / "model.safetensors").is_file():
             try:
                 import torch
 
@@ -206,13 +211,13 @@ class QwenASR:
     def _load_cpu(self):
         import sherpa_onnx
 
-        folder = self.runtime / QWEN_ASR_BUNDLE
+        folder = self.runtime / self.bundle
         conv, encoder, decoder, tokenizer = (folder / name for name in (
             "conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx", "tokenizer",
         ))
         if not all(path.is_file() for path in (
                 conv, encoder, decoder, tokenizer / "vocab.json", tokenizer / "merges.txt")):
-            raise FileNotFoundError("Не найдены файлы Qwen ASR. Запусти Setup Agent Utka.ps1.")
+            raise FileNotFoundError(f"Модель {self.name} не скачана. Выбери её в настройках.")
         self.on_status(f"Загрузка {self.name} INT8 · CPU…")
         self.model = sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
             str(conv), str(encoder), str(decoder), str(tokenizer),
@@ -442,9 +447,9 @@ class SpeechSession:
 
 
 def create_asr(runtime, engine="qwen", on_status=lambda msg: None, *, url="", model="", download=False,
-               whisper_model=DEFAULT_WHISPER_MODEL, whisper_device="auto"):
+               whisper_model=DEFAULT_WHISPER_MODEL, whisper_device="auto", qwen_model=DEFAULT_QWEN_MODEL):
     if engine == "qwen":
-        return QwenASR(runtime, on_status)
+        return QwenASR(runtime, on_status, variant=qwen_model)
     if engine == "whisper":
         return FasterWhisperASR(runtime, on_status, download=download, variant=whisper_model,
                                 device=whisper_device)

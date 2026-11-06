@@ -14,7 +14,7 @@ from .knowledge_window import show_knowledge_window
 from .model_picker import show_model_picker
 from .ollama_library import validate_ollama_model
 from .retrieval import RETRIEVAL_PROVIDERS, local_search_url
-from .speech import ASR_ENGINES
+from .speech import ASR_ENGINES, QWEN_ASR_MODELS
 from .speech_picker import show_speech_picker
 from .whisper_install import WHISPER_DEVICES
 
@@ -277,6 +277,7 @@ def show_settings(app):
         builtin_stt = "qwen"
     whisper_model = settings.get("whisper_model", "large-v3")
     whisper_device = settings["whisper_device"]
+    qwen_model = settings["qwen_model"]
     stt_sources = ("Встроенные модели", ASR_ENGINES["openai_local"])
     selected_retrieval = settings["rag_provider"]
     if selected_retrieval not in RETRIEVAL_PROVIDERS:
@@ -428,7 +429,7 @@ def show_settings(app):
     def speech_name():
         if builtin_stt == "whisper":
             return f"Faster Whisper · {whisper_model} · {WHISPER_DEVICES.get(whisper_device, 'Auto')}"
-        return ASR_ENGINES["qwen"]
+        return QWEN_ASR_MODELS[qwen_model][0]
 
     def render_current_models():
         actual = app.settings["stt_engine"]
@@ -469,22 +470,26 @@ def show_settings(app):
             return
 
         def use_model(engine, variant, device):
-            nonlocal selected_stt, builtin_stt, whisper_model, whisper_device
+            nonlocal selected_stt, builtin_stt, whisper_model, whisper_device, qwen_model
             updates = {"stt_engine": engine, "stt_builtin_engine": engine}
             if engine == "whisper":
                 updates.update(whisper_model=variant, whisper_device=device)
+            else:
+                updates["qwen_model"] = variant
             save_settings(updates)
             selected_stt = builtin_stt = engine
             if engine == "whisper":
                 whisper_model = variant
                 whisper_device = device
+            else:
+                qwen_model = variant
             update_fields()
             show_feedback("Сохранено. Настройки применятся при следующем запуске.")
 
         speech_picker = show_speech_picker(
             app, popup, runtime=RUNTIME, use_model=use_model, vram=vram,
             current=current_speech, unload=unload_speech, device=whisper_device,
-            selected=whisper_model if builtin_stt == "whisper" else "qwen",
+            selected=whisper_model if builtin_stt == "whisper" else qwen_model,
         )
 
     def brain_options():
