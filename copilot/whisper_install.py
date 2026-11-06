@@ -1,4 +1,4 @@
-"""Install known multilingual Faster Whisper models into the app's local cache."""
+"""Install models from the Faster Whisper catalog into the app's local cache."""
 
 import argparse
 import io
@@ -37,24 +37,60 @@ class _Source:
 
 
 _SMALL_FILES = {"tokenizer.json": 2203239, "vocabulary.txt": 459861}
+_ENGLISH_FILES = {"tokenizer.json": 2128466, "vocabulary.txt": 422309}
 _LARGE_FILES = {"preprocessor_config.json": 340, "vocabulary.json": 1068114}
 # The repository names come from Faster Whisper 1.2.1's model map. The revisions
 # and sizes are from the corresponding published Hugging Face file metadata.
 _SOURCES = {
     "tiny": _Source("Systran/faster-whisper-tiny", "d90ca5fe260221311c53c58e660288d3deb8d356",
                     {"config.json": 2249, "model.bin": 75538270, **_SMALL_FILES}),
+    "tiny.en": _Source("Systran/faster-whisper-tiny.en", "0d3d19a32d3338f10357c0889762bd8d64bbdeba",
+                       {"config.json": 2317, "model.bin": 75537502, **_ENGLISH_FILES}),
     "base": _Source("Systran/faster-whisper-base", "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
                     {"config.json": 2309, "model.bin": 145217532, **_SMALL_FILES}),
+    "base.en": _Source("Systran/faster-whisper-base.en", "3d3d5dee26484f91867d81cb899cfcf72b96be6c",
+                       {"config.json": 2227, "model.bin": 145216508, **_ENGLISH_FILES}),
     "small": _Source("Systran/faster-whisper-small", "536b0662742c02347bc0e980a01041f333bce120",
                      {"config.json": 2370, "model.bin": 483546902, **_SMALL_FILES}),
+    "small.en": _Source("Systran/faster-whisper-small.en", "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+                        {"config.json": 2657, "model.bin": 483545366, **_ENGLISH_FILES}),
     "medium": _Source("Systran/faster-whisper-medium", "08e178d48790749d25932bbc082711ddcfdfbc4f",
                       {"config.json": 2257, "model.bin": 1527906378, **_SMALL_FILES}),
+    "medium.en": _Source("Systran/faster-whisper-medium.en", "a29b04bd15381511a9af671baec01072039215e3",
+                         {"config.json": 2643, "model.bin": 1527904330, **_ENGLISH_FILES}),
+    "large-v1": _Source("Systran/faster-whisper-large-v1", "b07c8d4be0be90092aa01a29c975077acb8d15c9",
+                         {"config.json": 2352, "model.bin": 3086912962, **_SMALL_FILES}),
+    "large-v2": _Source("Systran/faster-whisper-large-v2", "f0fe81560cb8b68660e564f55dd99207059c092e",
+                         {"config.json": 2796, "model.bin": 3086912962, **_SMALL_FILES}),
     "large-v3-turbo": _Source(
         "mobiuslabsgmbh/faster-whisper-large-v3-turbo", "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
         {"config.json": 2263, "model.bin": 1617884929, "tokenizer.json": 2710337, **_LARGE_FILES},
     ),
     "large-v3": _Source("Systran/faster-whisper-large-v3", "edaa852ec7e145841d8ffdb056a99866b5f0a478",
                         {"config.json": 2394, "model.bin": 3087284237, "tokenizer.json": 2480617, **_LARGE_FILES}),
+    "distil-small.en": _Source(
+        "Systran/faster-distil-whisper-small.en", "ef77d90526ccd62cde3808ee70626a01e5cf83e4",
+        {"config.json": 2812, "model.bin": 332308257, "preprocessor_config.json": 339,
+         "tokenizer.json": 2405466, "vocabulary.json": 825480},
+    ),
+    "distil-medium.en": _Source(
+        "Systran/faster-distil-whisper-medium.en", "80ddfce281f77766d8943d63109199fc8145dfa5",
+        {"config.json": 2574, "model.bin": 788826555, "preprocessor_config.json": 339,
+         "tokenizer.json": 2405678, "vocabulary.json": 825480},
+    ),
+    "distil-large-v2": _Source(
+        "Systran/faster-distil-whisper-large-v2", "fe9b404fc56de3f7c38606ef9ba6fd83526d05e4",
+        {"config.json": 2657, "model.bin": 1512556667, "preprocessor_config.json": 339,
+         "tokenizer.json": 2481187, "vocabulary.json": 1068103},
+    ),
+    "distil-large-v3": _Source(
+        "Systran/faster-distil-whisper-large-v3", "c3058b475261292e64a0412df1d2681c06260fab",
+        {"config.json": 2690, "model.bin": 1512927867, "tokenizer.json": 2480617, **_LARGE_FILES},
+    ),
+    "distil-large-v3.5": _Source(
+        "distil-whisper/distil-large-v3.5-ct2", "9793ccc07920e0f830e1dba0343efcdf0ef8c903",
+        {"config.json": 2690, "model.bin": 1512927867, "tokenizer.json": 2480645, **_LARGE_FILES},
+    ),
 }
 WHISPER_MODELS = {name: sum(source.files.values()) for name, source in _SOURCES.items()}
 

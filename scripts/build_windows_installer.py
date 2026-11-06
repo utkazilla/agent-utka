@@ -153,6 +153,23 @@ try:
                 assert invoke_button(popup, 'Choose model…')
                 picker = next(child for child in popup.winfo_children() if isinstance(child, tk.Toplevel))
                 assert picker.title() == 'Speech recognition models'
+                tabs = next(child for child in descendants(picker) if isinstance(child, ttk.Notebook))
+                catalog, installed = [tabs.nametowidget(tab) for tab in tabs.tabs()]
+                assert [tabs.tab(tab, 'text') for tab in (catalog, installed)] == ['Catalog', 'Installed']
+                search = next(child for child in descendants(catalog) if isinstance(child, ttk.Entry))
+                models = next(child for child in descendants(catalog) if isinstance(child, ttk.Treeview))
+                assert len(models.get_children()) == 18
+                search.insert(0, 'DISTIL')
+                window.update()
+                assert len(models.get_children()) == 5
+                assert models.set('distil-large-v3.5', 'languages') == 'English only'
+                tabs.select(installed)
+                window.update()
+                on_disk = next(child for child in descendants(installed) if isinstance(child, ttk.Treeview))
+                assert not on_disk.get_children()
+                select = next(child for child in descendants(picker)
+                              if isinstance(child, ttk.Button) and child.cget('text') == 'Download and select')
+                assert select.instate(['disabled'])
                 picker.destroy()
         finally:
             popup.destroy()

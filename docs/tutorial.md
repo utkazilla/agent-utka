@@ -78,13 +78,13 @@ Open **Settings** to choose your providers. The model pickers save your selectio
 
 | Component | Built-in option | Connect your own |
 | --- | --- | --- |
-| Speech recognition | Qwen3-ASR 0.6B and multilingual Faster Whisper variants | Local OpenAI-compatible transcription endpoint |
+| Speech recognition | Qwen3-ASR 0.6B INT8 and Faster Whisper | Local OpenAI-compatible transcription endpoint |
 | Answer model | Portable Ollama | Existing local Ollama server or local OpenAI-compatible chat endpoint with JSON Schema |
 | Knowledge search | SQLite FTS5, with a configurable index folder | Local search API that returns references to indexed project text |
 
 ### Speech recognition
 
-1. Open **Settings → Speech recognition → Choose model…**. If a local speech server is selected, switch the source to **Built-in models** to open the picker. Compare the model file sizes and check which ones are installed. The picker includes Qwen3-ASR 0.6B and multilingual Faster Whisper variants `tiny`, `base`, `small`, `medium`, `large-v3-turbo`, and `large-v3`. [Faster Whisper model list](https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/utils.py)
+1. Open **Settings → Speech recognition → Choose model…**. If a local speech server is selected, switch the source to **Built-in models**. Search the **Catalog** by model name or language label, or open **Installed** to see models ready to select. The catalog includes Qwen3-ASR 0.6B INT8 and all 17 distinct Faster Whisper 1.2.1 variants, including Turbo and Distil. Choose a multilingual model for Russian, Spanish, or conversations in several languages. [Faster Whisper model list](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py)
 2. Select a model and click **Download and select** or **Select** if it is installed. Agent Utka downloads the weights and installs the Faster Whisper dependency if needed. It saves the selected speech engine and model when installation finishes. Canceling a download keeps your previous selection. Restart Agent Utka to use the chosen model. The picker shows download size and, when available, free VRAM on your NVIDIA GPU.
 3. For Faster Whisper, choose **NVIDIA GPU (CUDA)** to download cuBLAS and cuDNN on demand and verify GPU inference before saving. The first download adds about 1.3 GB of libraries and requires an NVIDIA driver. **CPU** explicitly uses the processor. **Auto** uses available libraries and can fall back to CPU. The Qwen picker downloads the INT8 CPU bundle.
 4. **Unload model** under Speech recognition pauses listening and releases the loaded built-in model. **Listen** resumes capture and the next speech segment reloads the model. The status shows which model is in memory and on which device.

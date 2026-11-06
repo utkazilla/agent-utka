@@ -48,11 +48,11 @@ Select a project folder with **Folder…** or import UTF-8 Markdown and text fil
 
 | Component | Built in | Optional local service |
 | --- | --- | --- |
-| Speech recognition | Qwen3-ASR 0.6B or multilingual Faster Whisper | OpenAI-compatible `POST /v1/audio/transcriptions` |
+| Speech recognition | Qwen3-ASR 0.6B INT8 and 17 Faster Whisper variants | OpenAI-compatible `POST /v1/audio/transcriptions` |
 | Answers | Portable Ollama | An existing Ollama instance with cloud features disabled, or an OpenAI-compatible chat server with JSON Schema support |
 | Project search | SQLite FTS5 | A local search API that returns project-relative file paths and line numbers |
 
-Choose these components independently in **Settings**. The speech and Ollama pickers show installed models and let you download compatible variants. Restart Agent Utka after changing engines or models. [Provider configuration and API contracts](docs/tutorial.md#choose-speech-answer-and-search-modules)
+Choose these components independently in **Settings**. Both model pickers have **Catalog** and **Installed** tabs. Search by model name, compare download sizes, and download models in the app. The speech catalog labels English-only variants. Restart Agent Utka after changing engines or models. [Provider configuration and API contracts](docs/tutorial.md#choose-speech-answer-and-search-modules)
 
 ## Local data and troubleshooting
 

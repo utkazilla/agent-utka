@@ -13,18 +13,20 @@ COPY = {
     **MODEL_COPY,
     "Модели распознавания": ("Speech recognition models", "Modelos de reconocimiento de voz"),
     "Размер загрузки": ("Download size", "Tamaño de descarga"),
+    "Языки": ("Languages", "Idiomas"),
+    "Только английский": ("English only", "Solo inglés"),
+    "Многоязычная": ("Multilingual", "Multilingüe"),
     "Примерно {size:.0f} МБ": ("About {size:.0f} MB", "Unos {size:.0f} MB"),
     "Примерно {size:.1f} ГБ": ("About {size:.1f} GB", "Unos {size:.1f} GB"),
     "Проверяю установленные модели…": ("Checking installed models…", "Comprobando los modelos instalados…"),
-    "Доступна для скачивания": ("Available to download", "Disponible para descargar"),
     "Выбери модель распознавания.": ("Choose a speech recognition model.", "Elige un modelo de reconocimiento de voz."),
+    "Установленных моделей пока нет. Скачай модель из каталога.": (
+        "No models installed yet. Download one from the catalog.",
+        "Todavía no hay modelos instalados. Descarga uno del catálogo.",
+    ),
     "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически.": (
         "Qwen downloads the INT8 CPU package. The app uses CUDA automatically if it is already configured.",
         "Qwen descarga el paquete INT8 para CPU. La aplicación usa CUDA si ya está configurada.",
-    ),
-    "Многоязычный вариант Faster Whisper. Меньшие варианты обычно быстрее. Точность зависит от речи и языка.": (
-        "A multilingual Faster Whisper variant. Smaller variants are usually faster. Accuracy depends on the speech and language.",
-        "Variante multilingüe de Faster Whisper. Los tamaños menores suelen ser más rápidos. La precisión depende del habla y el idioma.",
     ),
     "Устанавливаю Faster Whisper…": ("Installing Faster Whisper…", "Instalando Faster Whisper…"),
     "Установить CUDA и выбрать": ("Install CUDA and select", "Instalar CUDA y seleccionar"),
@@ -75,9 +77,9 @@ class SpeechPicker:
         w.attributes("-topmost", app.top.get())
         bg = parent.cget("bg")
         w.configure(bg=bg)
-        width = min(710, w.winfo_screenwidth() - 60)
-        height = min(460, w.winfo_screenheight() - 96)
-        w.minsize(min(565, width), min(380, height))
+        width = min(790, w.winfo_screenwidth() - 60)
+        height = min(545, w.winfo_screenheight() - 96)
+        w.minsize(min(650, width), min(430, height))
         w.geometry(f"{width}x{height}")
         self.models = {
             "qwen": ("qwen", "0.6b-int8", "Qwen3-ASR 0.6B", "INT8 · CPU", QWEN_DOWNLOAD_BYTES),
@@ -91,6 +93,8 @@ class SpeechPicker:
         self.stop = None
         self.after_id = None
         self.events = queue.SimpleQueue()
+        self.query = tk.StringVar(w)
+        self.saved_model = tk.StringVar(w)
         self.feedback = tk.StringVar(w, self.t("Проверяю установленные модели…"))
         self.details = tk.StringVar(w)
         frame = tk.Frame(w, bg=bg, padx=14, pady=12)
@@ -98,6 +102,8 @@ class SpeechPicker:
         bottom = tk.Frame(frame, bg=bg)
         bottom.pack(side="bottom", fill="x")
         app._label(frame, self.t("Модели распознавания"), size=15, bold=True, bg=bg).pack(fill="x")
+        app._label(frame, var=self.saved_model, color="#a9c9b6", size=9, bg=bg).pack(fill="x", pady=(2, 0))
+        self.update_saved_model()
         current_row = tk.Frame(frame, bg=bg)
         current_row.pack(fill="x")
         app._label(current_row, var=current, size=9, bg=bg).pack(side="left", fill="x", expand=True)
@@ -137,36 +143,78 @@ class SpeechPicker:
         style.map("SpeechPicker.Treeview", background=[("selected", "#3b5547")],
                   foreground=[("selected", "#ffffff")])
         style.configure("SpeechPicker.Treeview.Heading", background="#383f39", foreground="#f3f5f1")
-        table_frame = tk.Frame(frame, bg=bg)
-        table_frame.pack(fill="both", expand=True)
-        columns = (("model", "Модель", 145), ("variant", "Вариант", 115),
-                   ("size", "Размер загрузки", 130), ("status", "Состояние", 145))
-        self.table = ttk.Treeview(table_frame, columns=[key for key, *_ in columns], show="headings",
-                                  selectmode="browse", style="SpeechPicker.Treeview")
-        for key, text, width in columns:
-            self.table.heading(key, text=self.t(text))
-            self.table.column(key, width=width, minwidth=80)
-        bar = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview, style="Copilot.Vertical.TScrollbar")
-        self.table.configure(yscrollcommand=bar.set)
-        bar.pack(side="right", fill="y")
-        self.table.pack(side="left", fill="both", expand=True)
-        for key, (_engine, _variant, name, label, size) in self.models.items():
-            size_label = self.t("Примерно {size:.1f} ГБ", size=size / 10**9) if size >= 10**9 else self.t(
-                "Примерно {size:.0f} МБ", size=size / 10**6)
-            status = self.t("Выбрана") if key == self.saved_key else "…"
-            self.table.insert("", "end", iid=key, values=(name, label, size_label, status))
-        self.table.selection_set(self.saved_key)
-        self.table.see(self.selected())
-        self.table.bind("<<TreeviewSelect>>", self.update_action)
-        self.update_action()
+        self.tabs = ttk.Notebook(frame)
+        self.tabs.pack(fill="both", expand=True)
+        catalog = tk.Frame(self.tabs, bg=bg, padx=6, pady=6)
+        installed = tk.Frame(self.tabs, bg=bg, padx=6, pady=6)
+        self.tabs.add(catalog, text=self.t("Каталог"))
+        self.tabs.add(installed, text=self.t("Установленные"))
+        search_row = tk.Frame(catalog, bg=bg)
+        search_row.pack(fill="x", pady=(0, 6))
+        app._label(search_row, self.t("Поиск"), size=9, bg=bg).pack(side="left", padx=(0, 8))
+        search = ttk.Entry(search_row, textvariable=self.query, style="Copilot.Settings.TEntry")
+        search.pack(side="left", fill="x", expand=True)
+        self.catalog_table = self.make_table(catalog)
+        self.installed_table = self.make_table(installed)
+        self.tabs.bind("<<NotebookTabChanged>>", self.update_action)
+        self.query.trace_add("write", self.filter_catalog)
+        self.filter_catalog()
         w.bind("<Destroy>", self.cleanup)
         w.bind("<Escape>", lambda _: w.destroy())
         w.grab_set()
-        self.table.focus_set()
+        search.focus_set()
         self.run(self.check_installed, self.installed_checked)
 
     def t(self, source, **values):
         return translate(self.language, COPY, source, **values)
+
+    def make_table(self, frame):
+        columns = (("model", "Модель", 145), ("variant", "Вариант", 135), ("languages", "Языки", 120),
+                   ("size", "Размер загрузки", 120), ("status", "Состояние", 120))
+        table = ttk.Treeview(frame, columns=[key for key, *_ in columns], show="headings",
+                             selectmode="browse", style="SpeechPicker.Treeview")
+        for key, label, width in columns:
+            table.heading(key, text=self.t(label))
+            table.column(key, width=width, minwidth=70)
+        bar = ttk.Scrollbar(frame, orient="vertical", command=table.yview, style="Copilot.Vertical.TScrollbar")
+        table.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        table.pack(side="left", fill="both", expand=True)
+        table.bind("<<TreeviewSelect>>", self.update_action)
+        return table
+
+    def model_languages(self, key):
+        english = key.endswith(".en") or key.startswith("distil-")
+        return self.t("Только английский" if english else "Многоязычная")
+
+    def filter_catalog(self, *_args):
+        terms = self.query.get().casefold().split()
+        keys = []
+        for key, (_engine, _variant, name, label, _size) in self.models.items():
+            searchable = f"{name} {label} {self.model_languages(key)}".casefold()
+            if all(term in searchable for term in terms):
+                keys.append(key)
+        self.show_models(self.catalog_table, keys)
+        self.update_action()
+
+    def show_models(self, table, keys):
+        selected = next(iter(table.selection()), self.saved_key)
+        table.delete(*table.get_children())
+        for key in keys:
+            _engine, _variant, name, label, size = self.models[key]
+            size_label = (self.t("Примерно {size:.1f} ГБ", size=size / 10**9) if size >= 10**9
+                          else self.t("Примерно {size:.0f} МБ", size=size / 10**6))
+            table.insert("", "end", iid=key,
+                         values=(name, label, self.model_languages(key), size_label, self.model_status(key)))
+        if selected in keys:
+            table.selection_set(selected)
+            table.see(selected)
+
+    def update_saved_model(self):
+        engine, variant, name, *_ = self.models[self.saved_key]
+        if engine == "whisper":
+            name = f"{name} · {variant}"
+        self.saved_model.set(self.t("Выбор в настройках · {name}", name=name))
 
     def run(self, job, finish):
         def work():
@@ -205,19 +253,28 @@ class SpeechPicker:
             self.feedback.set(self.t("Выбери модель распознавания."))
         else:
             self.feedback.set(self.t("Не удалось проверить установленные модели. {detail}", detail=str(error)))
-        for key in self.models:
+        for key in self.catalog_table.get_children():
             self.mark_status(key)
+        self.show_models(self.installed_table, [key for key in self.models if key in self.installed])
         self.update_action()
 
-    def mark_status(self, key):
-        status = "Выбрана" if key == self.saved_key else "Установлена" if key in self.installed else "Доступна для скачивания"
-        self.table.set(key, "status", self.t(status))
+    def model_status(self, key):
+        if self.installed is None:
+            return self.t("Выбрана") if key == self.saved_key else "…"
+        disk = self.t("Установлена" if key in self.installed else "Не скачана")
+        return f'{self.t("Выбрана")} · {disk}' if key == self.saved_key else disk
 
-    def selected(self):
-        return next(iter(self.table.selection()), None)
+    def mark_status(self, key):
+        for table in (self.catalog_table, self.installed_table):
+            if table.exists(key):
+                table.set(key, "status", self.model_status(key))
+
+    def active_table(self):
+        return self.catalog_table if self.tabs.index("current") == 0 else self.installed_table
 
     def update_action(self, _event=None):
-        key = self.selected()
+        table = self.active_table()
+        key = next(iter(table.selection()), None)
         installed = self.installed is not None and key in self.installed
         whisper = key is not None and key != "qwen"
         self.device.state(["!disabled"] if whisper and self.stop is None else ["disabled"])
@@ -226,17 +283,19 @@ class SpeechPicker:
             ("Установить CUDA и выбрать" if needs_cuda else "Выбрать") if installed else "Скачать и выбрать"))
         self.action.state(["!disabled"] if key and self.installed is not None and self.stop is None else ["disabled"])
         self.cancel.state(["!disabled"] if self.stop and not self.stop.is_set() else ["disabled"])
-        if key:
-            if key == "qwen":
-                detail = "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически."
-            elif needs_cuda:
-                detail = "NVIDIA GPU · при первом выборе загрузится около 1,3 ГБ библиотек."
-            else:
-                detail = "Многоязычный вариант Faster Whisper. Меньшие варианты обычно быстрее. Точность зависит от речи и языка."
-            self.details.set(self.t(detail))
+        detail = "Размер файлов указан для диска. Свободная VRAM показана отдельно."
+        if table is self.catalog_table and not table.get_children():
+            detail = "Модели не найдены. Попробуй другое название."
+        elif table is self.installed_table and self.installed == set():
+            detail = "Установленных моделей пока нет. Скачай модель из каталога."
+        elif key == "qwen":
+            detail = "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически."
+        elif needs_cuda:
+            detail = "NVIDIA GPU · при первом выборе загрузится около 1,3 ГБ библиотек."
+        self.details.set(self.t(detail))
 
     def choose(self):
-        key = self.selected()
+        key = next(iter(self.active_table().selection()), None)
         if not key or self.installed is None or self.stop is not None:
             return
         engine, variant, *_ = self.models[key]
@@ -265,6 +324,7 @@ class SpeechPicker:
             else:
                 self.installed.add(key)
                 self.mark_status(key)
+                self.show_models(self.installed_table, [item for item in self.models if item in self.installed])
                 if engine == "whisper" and device == "cuda":
                     self.cuda_ready = True
                 self.apply(key, device)
@@ -280,6 +340,7 @@ class SpeechPicker:
             self.feedback.set(self.t("Не удалось сохранить выбор. {detail}", detail=str(error)))
             return
         previous, self.saved_key = self.saved_key, key
+        self.update_saved_model()
         self.mark_status(previous)
         self.mark_status(key)
         name = f"{name} · {variant}" if engine == "whisper" else name

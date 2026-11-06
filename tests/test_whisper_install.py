@@ -4,10 +4,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from copilot.configuration import load_settings, save_settings
-from copilot.whisper_install import _Source, _run_worker, install_whisper, whisper_installed
+from copilot.whisper_install import WHISPER_MODELS, _Source, _run_worker, install_whisper, whisper_installed
 
 
 class WhisperInstallationTests(unittest.TestCase):
+    def test_catalog_covers_every_distinct_faster_whisper_121_model(self):
+        self.assertEqual(set(WHISPER_MODELS), {
+            "tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en",
+            "large-v1", "large-v2", "large-v3", "large-v3-turbo", "distil-small.en",
+            "distil-medium.en", "distil-large-v2", "distil-large-v3", "distil-large-v3.5",
+        })
+
     def test_explicit_gpu_installs_pinned_cuda_libraries_for_an_existing_model(self):
         with (
             patch("copilot.whisper_install.read_vram", return_value=[object()]),
