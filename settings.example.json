@@ -1,0 +1,20 @@
+{
+  "ollama": "qwen3.5:4b",
+  "ollama_url": "http://127.0.0.1:11434",
+  "ollama_model": "qwen3.5:4b",
+  "llm_provider": "ollama",
+  "llm_model": "",
+  "llm_url": "http://127.0.0.1:1234/v1",
+  "stt_engine": "qwen",
+  "whisper_model": "large-v3",
+  "stt_url": "http://127.0.0.1:8000/v1",
+  "stt_model": "",
+  "ui_language": "ru",
+  "rag_directory": "",
+  "rag_provider": "sqlite",
+  "rag_url": "http://127.0.0.1:8090/search",
+  "pause_ms": 420,
+  "extra_roots": [],
+  "project": "",
+  "glossary": ""
+}
