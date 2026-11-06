@@ -245,7 +245,11 @@ class QwenASR:
             stream.set_option("hotwords", glossary)
         stream.accept_waveform(RATE, audio)
         self.model.decode_stream(stream)
-        return stream.result.text.strip()
+        transcript = stream.result.text.strip()
+        metadata, tag, text = transcript.partition("<asr_text>")
+        if tag and metadata.casefold().startswith("language ") and metadata[9:].strip().isalpha():
+            return text.strip()
+        return transcript
 
     def unload(self):
         self.model = None

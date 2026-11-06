@@ -4,7 +4,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from copilot import qwen_install as qwen
 from copilot.configuration import load_settings, save_settings
@@ -107,3 +107,17 @@ class QwenInstallTest(unittest.TestCase):
             recognizer = create_asr(self.runtime, qwen_model=load_settings(settings)["qwen_model"])
             self.assertEqual(recognizer.name, "Qwen3-ASR 1.7B")
             cpu.assert_called_once_with(recognizer)
+
+    def test_recognizer_strips_only_leading_language_metadata(self):
+        with patch("copilot.speech.QwenASR._load_cpu"):
+            recognizer = create_asr(self.runtime, qwen_model="1.7b-int8")
+        recognizer.model = Mock()
+        stream = recognizer.model.create_stream.return_value
+        for decoded, transcript in (
+            ("language English<asr_text>What is the token lifetime?", "What is the token lifetime?"),
+            ("language None<asr_text>", ""),
+            ("Use the <asr_text> tag.", "Use the <asr_text> tag."),
+        ):
+            with self.subTest(decoded=decoded):
+                stream.result.text = decoded
+                self.assertEqual(recognizer(b"\0\0"), transcript)
