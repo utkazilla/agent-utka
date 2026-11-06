@@ -5,7 +5,7 @@ from tkinter import ttk
 
 from .i18n import translate
 from .model_picker import COPY as MODEL_COPY
-from .qwen_install import QWEN_DOWNLOAD_SIZES, install_qwen, qwen_installed
+from .qwen_install import QWEN_CUDA_DOWNLOAD_SIZES, QWEN_DOWNLOAD_SIZES, install_qwen, qwen_installed
 from .speech import DEFAULT_QWEN_MODEL, QWEN_ASR_MODELS, QWEN_LARGE_MODEL
 from .whisper_install import WHISPER_DEVICES, WHISPER_MODELS, install_whisper, whisper_cuda_installed, whisper_installed
 
@@ -25,9 +25,12 @@ COPY = {
         "No models installed yet. Download one from the catalog.",
         "Todavía no hay modelos instalados. Descarga uno del catálogo.",
     ),
-    "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически.": (
-        "Qwen downloads the INT8 CPU package. The app uses CUDA automatically if it is already configured.",
-        "Qwen descarga el paquete INT8 para CPU. La aplicación usa CUDA si ya está configurada.",
+    "Qwen BF16 работает на NVIDIA GPU. При первой установке также скачиваются библиотеки PyTorch CUDA.": (
+        "Qwen BF16 runs on an NVIDIA GPU. The first setup also downloads PyTorch CUDA libraries.",
+        "Qwen BF16 usa la GPU NVIDIA. La primera instalación también descarga las bibliotecas PyTorch CUDA.",
+    ),
+    "Устанавливаю PyTorch CUDA для Qwen…": (
+        "Installing PyTorch CUDA for Qwen…", "Instalando PyTorch CUDA para Qwen…",
     ),
     "Qwen3-ASR 1.7B INT8 работает на CPU и требует больше оперативной памяти, чем 0.6B.": (
         "Qwen3-ASR 1.7B INT8 runs on CPU and uses more system memory than 0.6B.",
@@ -88,6 +91,8 @@ class SpeechPicker:
         w.geometry(f"{width}x{height}")
         self.models = {
             **{variant: ("qwen", variant, name, "INT8 · CPU", QWEN_DOWNLOAD_SIZES[variant])
+               for variant, (name, _bundle) in QWEN_ASR_MODELS.items()},
+            **{f"{variant}-cuda": ("qwen", variant, name, "BF16 · NVIDIA GPU", QWEN_CUDA_DOWNLOAD_SIZES[variant])
                for variant, (name, _bundle) in QWEN_ASR_MODELS.items()},
             **{variant: ("whisper", variant, "Faster Whisper", variant, size)
                for variant, size in WHISPER_MODELS.items()},
@@ -250,6 +255,8 @@ class SpeechPicker:
 
     def check_installed(self):
         installed = {variant for variant in QWEN_ASR_MODELS if qwen_installed(self.runtime, variant)}
+        installed.update(f"{variant}-cuda" for variant in QWEN_ASR_MODELS
+                         if qwen_installed(self.runtime, variant, device="cuda"))
         installed.update(variant for variant in WHISPER_MODELS if whisper_installed(self.runtime, variant))
         return installed, whisper_cuda_installed()
 
@@ -294,10 +301,10 @@ class SpeechPicker:
             detail = "Модели не найдены. Попробуй другое название."
         elif table is self.installed_table and self.installed == set():
             detail = "Установленных моделей пока нет. Скачай модель из каталога."
+        elif key and key.endswith("-cuda"):
+            detail = "Qwen BF16 работает на NVIDIA GPU. При первой установке также скачиваются библиотеки PyTorch CUDA."
         elif key == QWEN_LARGE_MODEL:
             detail = "Qwen3-ASR 1.7B INT8 работает на CPU и требует больше оперативной памяти, чем 0.6B."
-        elif key == DEFAULT_QWEN_MODEL:
-            detail = "Qwen скачивает пакет INT8 для CPU. Если CUDA уже настроена, приложение использует её автоматически."
         elif needs_cuda:
             detail = "NVIDIA GPU · при первом выборе загрузится около 1,3 ГБ библиотек."
         self.details.set(self.t(detail))
@@ -307,8 +314,11 @@ class SpeechPicker:
         if not key or self.installed is None or self.stop is not None:
             return
         engine, variant, *_ = self.models[key]
-        device = next((name for name, label in WHISPER_DEVICES.items() if label == self.device.get()), "auto")
-        if key in self.installed and (engine == "qwen" or device != "cuda"):
+        if engine == "qwen":
+            device = "cuda" if key.endswith("-cuda") else "cpu"
+        else:
+            device = next((name for name, label in WHISPER_DEVICES.items() if label == self.device.get()), "auto")
+        if key in self.installed and device != "cuda":
             self.apply(key, device)
             return
         stop = self.stop = threading.Event()
@@ -320,7 +330,7 @@ class SpeechPicker:
 
         def install():
             if engine == "qwen":
-                return install_qwen(self.runtime, progress, stop.is_set, variant=variant)
+                return install_qwen(self.runtime, progress, stop.is_set, variant=variant, device=device)
             return install_whisper(self.runtime, variant, progress, stop.is_set, device=device)
 
         def finish(complete, error):
@@ -359,6 +369,8 @@ class SpeechPicker:
             message = self.t("Устанавливаю Faster Whisper…")
         elif stage == "cuda":
             message = self.t("Устанавливаю cuBLAS и cuDNN для CUDA 12…")
+        elif stage == "qwen_cuda":
+            message = self.t("Устанавливаю PyTorch CUDA для Qwen…")
         elif stage == "verify":
             message = self.t("Проверяю файлы модели…")
         elif completed is not None and total:

@@ -36,8 +36,10 @@ def check_cancelled(cancelled):
 
 
 def setup_needed(runtime, settings):
-    if settings["stt_engine"] == "qwen" and not qwen_installed(runtime, settings.get("qwen_model", DEFAULT_QWEN_MODEL)):
-        return True
+    if settings["stt_engine"] == "qwen":
+        if not qwen_installed(runtime, settings.get("qwen_model", DEFAULT_QWEN_MODEL),
+                              device=settings.get("qwen_device", "auto")):
+            return True
     if settings["stt_engine"] == "whisper":
         if not whisper_installed(runtime, settings["whisper_model"]):
             return True
@@ -130,9 +132,10 @@ def prepare_runtime(runtime, settings, progress, cancelled):
         check_cancelled(cancelled)
         engine = settings["stt_engine"]
         qwen_model = settings.get("qwen_model", DEFAULT_QWEN_MODEL)
-        if engine == "qwen" and not qwen_installed(runtime, qwen_model):
+        qwen_device = settings.get("qwen_device", "auto")
+        if engine == "qwen" and not qwen_installed(runtime, qwen_model, device=qwen_device):
             if not install_qwen(runtime, lambda _, done, total: progress("Preparing Qwen speech recognition", done, total),
-                                cancelled, variant=qwen_model):
+                                cancelled, variant=qwen_model, device=qwen_device):
                 return False
         elif engine == "whisper" and (not whisper_installed(runtime, settings["whisper_model"])
                                       or settings.get("whisper_device") == "cuda"):

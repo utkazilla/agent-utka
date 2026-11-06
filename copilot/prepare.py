@@ -9,11 +9,13 @@ from .speech import QWEN_LARGE_MODEL, create_asr
 
 def main():
     settings = load_settings()
-    if settings["stt_engine"] == "qwen" and settings["qwen_model"] == QWEN_LARGE_MODEL:
-        install_qwen(RUNTIME, variant=QWEN_LARGE_MODEL)
+    if settings["stt_engine"] == "qwen" and (settings["qwen_model"] == QWEN_LARGE_MODEL
+                                            or settings["qwen_device"] == "cuda"):
+        install_qwen(RUNTIME, variant=settings["qwen_model"], device=settings["qwen_device"])
     create_asr(RUNTIME, settings["stt_engine"], print,
                url=settings["stt_url"], model=settings["stt_model"], download=True,
-               whisper_model=settings["whisper_model"], qwen_model=settings["qwen_model"])
+               whisper_model=settings["whisper_model"], qwen_model=settings["qwen_model"],
+               qwen_device=settings["qwen_device"])
     if settings["llm_provider"] != "ollama":
         return
     llm = create_brain(RUNTIME, settings)

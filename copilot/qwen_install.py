@@ -3,11 +3,14 @@
 import hashlib
 import tarfile
 import tempfile
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .speech import DEFAULT_QWEN_MODEL, QWEN_ASR_BUNDLE, QWEN_ASR_MODELS, QWEN_LARGE_MODEL
+from .hardware import read_vram
+from .speech import DEFAULT_QWEN_MODEL, QWEN_ASR_BUNDLE, QWEN_ASR_MODELS, QWEN_CUDA_BUNDLES, QWEN_LARGE_MODEL
+from .whisper_install import _run_worker
 
 
 QWEN_DOWNLOAD_BYTES = 878_702_423
@@ -39,6 +42,30 @@ QWEN_DOWNLOAD_SIZES = {
     DEFAULT_QWEN_MODEL: QWEN_DOWNLOAD_BYTES,
     QWEN_LARGE_MODEL: sum(size for size, _digest in _LARGE_FILES.values()),
 }
+_CUDA_COMMON_FILES = {
+    "chat_template.jinja": (1_434, "f50e6b694fbf4a683206e37869990d68333fe95d285730f084c838a34b0d98c2"),
+    "generation_config.json": (165, "9939fc9388b79bd70757f938b87381e817173d6a6158f5af6506c0b73e775c3c"),
+    "processor_config.json": (487, "bc0b230081b44e629dd5b9045b78495615c1831b4b9f4cffe97bd37e82a6156a"),
+    "tokenizer.json": (11_429_653, "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05"),
+    "tokenizer_config.json": (998, "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11"),
+}
+_CUDA_SOURCES = {
+    DEFAULT_QWEN_MODEL: ("Qwen3-ASR-0.6B-hf", "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c", {
+        **_CUDA_COMMON_FILES,
+        "config.json": (2_398, "9eecf6f1b383e343889c2e6010e632590fa57d4bc678e151c7d6a160a0dfb04a"),
+        "model.safetensors": (1_564_928_088, "d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35"),
+    }),
+    QWEN_LARGE_MODEL: ("Qwen3-ASR-1.7B-hf", "bcd2b5b7f32b480ab5790554cfa8347f246a14f3", {
+        **_CUDA_COMMON_FILES,
+        "config.json": (2_399, "117ac8e63e2af7cae3665e5a632d6eb03f5f384915519ceb6403c15ec6533f63"),
+        "model.safetensors": (4_076_193_080, "2db53c7d81bd9b8cbc6a074e89be2c968a0d373fb4ee68bb1b1e14f7042dfee1"),
+    }),
+}
+QWEN_CUDA_DOWNLOAD_SIZES = {
+    variant: sum(size for size, _ in files.values()) for variant, (_, _, files) in _CUDA_SOURCES.items()
+}
+_TORCH = "2.11.0+cu128"
+_TRANSFORMERS = "5.13.0"
 _BLOCK = 1 << 20
 
 
@@ -63,17 +90,30 @@ def _files(variant):
     return _FILES if variant == DEFAULT_QWEN_MODEL else {name: size for name, (size, _) in _LARGE_FILES.items()}
 
 
-def qwen_installed(runtime, variant=DEFAULT_QWEN_MODEL):
-    """Report whether the chosen CPU model files are present."""
-    bundle = Path(runtime) / QWEN_ASR_MODELS[variant][1]
+def _bundle_installed(bundle, files):
     try:
         return (
             not _link(bundle)
             and not _link(bundle / "tokenizer")
-            and all(_matches(bundle / name, length) for name, length in _files(variant).items())
+            and all(_matches(bundle / name, length) for name, length in files.items())
         )
     except OSError:
         return False
+
+
+def _has_package(package, expected):
+    try:
+        return version(package) == expected
+    except PackageNotFoundError:
+        return False
+
+
+def qwen_installed(runtime, variant=DEFAULT_QWEN_MODEL, *, device="auto"):
+    if device == "cuda":
+        files = {name: size for name, (size, _) in _CUDA_SOURCES[variant][2].items()}
+        return (_bundle_installed(Path(runtime) / QWEN_CUDA_BUNDLES[variant], files)
+                and _has_package("torch", _TORCH) and _has_package("transformers", _TRANSFORMERS))
+    return _bundle_installed(Path(runtime) / QWEN_ASR_MODELS[variant][1], _files(variant))
 
 
 def _download(archive, on_progress, cancelled):
@@ -104,18 +144,25 @@ def _download_file(url, destination, size, checksum, progress, cancelled):
 
 
 def _download_large(staged, on_progress, cancelled):
+    def url(name):
+        remote = name if name.startswith("tokenizer/") else f"model_1.7B/{name}"
+        query = urlencode({"Revision": _LARGE_REVISION, "FilePath": remote})
+        return f"{_LARGE_REPO}?{query}"
+
+    _download_files(staged, _LARGE_FILES, url, on_progress, cancelled)
+
+
+def _download_files(staged, files, url, on_progress, cancelled):
     completed = 0
-    total = sum(size for size, _digest in _LARGE_FILES.values())
+    total = sum(size for size, _digest in files.values())
 
     def progress(stage, received, _size):
         on_progress(stage, completed + received, total)
 
-    for name, (size, checksum) in _LARGE_FILES.items():
-        remote = name if name.startswith("tokenizer/") else f"model_1.7B/{name}"
-        query = urlencode({"Revision": _LARGE_REVISION, "FilePath": remote})
+    for name, (size, checksum) in files.items():
         destination = staged / name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        _download_file(f"{_LARGE_REPO}?{query}", destination, size, checksum, progress, cancelled)
+        _download_file(url(name), destination, size, checksum, progress, cancelled)
         completed += size
 
 
@@ -176,11 +223,14 @@ def _publish(staged, bundle, files):
             (staged / relative).replace(path)
 
 
-def install_qwen(runtime, on_progress=lambda *_: None, cancelled=lambda: False, *, variant=DEFAULT_QWEN_MODEL):
-    """Install and verify the selected CPU model, or return False on cancellation."""
+def install_qwen(runtime, on_progress=lambda *_: None, cancelled=lambda: False, *,
+                 variant=DEFAULT_QWEN_MODEL, device="auto"):
+    """Install the requested model or return False on cancellation."""
     runtime = Path(runtime)
     if cancelled():
         return False
+    if device == "cuda":
+        return _install_cuda(runtime, variant, on_progress, cancelled)
     if qwen_installed(runtime, variant):
         return True
     runtime.mkdir(parents=True, exist_ok=True)
@@ -196,6 +246,48 @@ def install_qwen(runtime, on_progress=lambda *_: None, cancelled=lambda: False, 
                 _download_large(staged, on_progress, cancelled)
             _check_cancelled(cancelled)
             _publish(staged, runtime / QWEN_ASR_MODELS[variant][1], _files(variant))
+        return True
+    except _Cancelled:
+        return False
+
+
+def _install_cuda(runtime, variant, on_progress, cancelled):
+    if not read_vram():
+        raise RuntimeError("Для режима GPU нужен доступный драйвер NVIDIA.")
+    try:
+        for package, pin, index in (
+            ("torch", _TORCH, "https://download.pytorch.org/whl/cu128"),
+            ("transformers", _TRANSFORMERS, "https://pypi.org/simple"),
+        ):
+            if _has_package(package, pin):
+                continue
+            on_progress("qwen_cuda", None, None)
+            result = _run_worker(["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
+                                  "--only-binary=:all:", "--index-url", index, f"{package}=={pin}"], cancelled)
+            _check_cancelled(cancelled)
+            if result != 0 or not _has_package(package, pin):
+                raise RuntimeError(f"Could not install {package} for Qwen ASR.")
+
+        repo, revision, source = _CUDA_SOURCES[variant]
+        bundle = runtime / QWEN_CUDA_BUNDLES[variant]
+        files = {name: size for name, (size, _) in source.items()}
+        if not _bundle_installed(bundle, files):
+            runtime.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="qwen-cuda-", dir=runtime) as temporary:
+                staged = Path(temporary) / "bundle"
+                base = f"https://huggingface.co/Qwen/{repo}/resolve/{revision}"
+                _download_files(staged, source, lambda name: f"{base}/{name}", on_progress, cancelled)
+                _check_cancelled(cancelled)
+                _publish(staged, bundle, files)
+        on_progress("verify", None, None)
+        result = _run_worker([
+            "-c", "import sys; from copilot.speech import QwenASR; "
+                  "QwenASR(sys.argv[1], variant=sys.argv[2], device='cuda')",
+            str(runtime.resolve()), variant,
+        ], cancelled)
+        _check_cancelled(cancelled)
+        if result != 0:
+            raise RuntimeError("Qwen ASR не прошёл проверку CUDA. Проверь драйвер NVIDIA и свободную VRAM.")
         return True
     except _Cancelled:
         return False

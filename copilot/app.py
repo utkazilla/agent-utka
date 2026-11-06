@@ -504,7 +504,7 @@ class Overlay:
                     lambda msg: self.ui.put(("status", ("{error}", {"error": msg}))),
                     url=self.settings["stt_url"], model=self.settings["stt_model"],
                     whisper_model=self.settings["whisper_model"], whisper_device=self.settings["whisper_device"],
-                    qwen_model=self.settings["qwen_model"],
+                    qwen_model=self.settings["qwen_model"], qwen_device=self.settings["qwen_device"],
                 ),
                 self.live.is_set,
             )

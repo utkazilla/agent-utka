@@ -18,6 +18,7 @@ DEFAULTS = {
     "llm_url": "http://127.0.0.1:1234/v1",
     "stt_engine": "qwen",
     "qwen_model": DEFAULT_QWEN_MODEL,
+    "qwen_device": "auto",
     "whisper_model": "large-v3",
     "whisper_device": "auto",
     "stt_url": "http://127.0.0.1:8000/v1",
@@ -44,6 +45,8 @@ def load_settings(path=LOCAL_SETTINGS):
     qwen = settings["qwen_model"]
     if not isinstance(qwen, str) or qwen not in QWEN_ASR_MODELS:
         settings["qwen_model"] = DEFAULT_QWEN_MODEL
+    if settings["qwen_device"] not in ("auto", "cpu", "cuda"):
+        settings["qwen_device"] = DEFAULTS["qwen_device"]
     return settings
 
 

@@ -108,6 +108,32 @@ class QwenInstallTest(unittest.TestCase):
             self.assertEqual(recognizer.name, "Qwen3-ASR 1.7B")
             cpu.assert_called_once_with(recognizer)
 
+    def test_explicit_cuda_uses_17b_weights_without_cpu_fallback(self):
+        model = self.runtime / "qwen3-asr-1.7b-hf"
+        model.mkdir()
+        (model / "model.safetensors").touch()
+        with (patch("copilot.speech.QwenASR._load_cuda", side_effect=RuntimeError("CUDA unavailable")) as cuda,
+              patch("copilot.speech.QwenASR._load_cpu") as cpu,
+              self.assertRaisesRegex(RuntimeError, "CUDA unavailable")):
+            create_asr(self.runtime, qwen_model="1.7b-int8", qwen_device="cuda")
+        cuda.assert_called_once_with(model)
+        cpu.assert_not_called()
+
+    def test_cuda_install_verifies_pinned_weights_without_requiring_cpu_bundle(self):
+        weights = b"test weights"
+        files = {"model.safetensors": (len(weights), hashlib.sha256(weights).hexdigest())}
+        with (patch.dict(qwen._CUDA_SOURCES, {"1.7b-int8": ("Qwen3-ASR-1.7B-hf", "pin", files)}),
+              patch.object(qwen, "_has_package", return_value=True),
+              patch.object(qwen, "read_vram", return_value=[object()]),
+              patch.object(qwen, "_run_worker", return_value=0) as worker,
+              patch.object(qwen, "urlopen", return_value=io.BytesIO(weights)) as fetch):
+            self.assertTrue(qwen.install_qwen(self.runtime, variant="1.7b-int8", device="cuda"))
+            self.assertTrue(qwen.qwen_installed(self.runtime, "1.7b-int8", device="cuda"))
+            self.assertFalse(qwen.qwen_installed(self.runtime, "1.7b-int8", device="cpu"))
+            self.assertEqual(fetch.call_args.args[0].full_url,
+                             "https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf/resolve/pin/model.safetensors")
+            self.assertEqual(worker.call_args.args[0][-1], "1.7b-int8")
+
     def test_recognizer_strips_only_leading_language_metadata(self):
         with patch("copilot.speech.QwenASR._load_cpu"):
             recognizer = create_asr(self.runtime, qwen_model="1.7b-int8")

@@ -22,6 +22,10 @@ QWEN_ASR_BUNDLE = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
 QWEN_ASR_CUDA_BUNDLE = "qwen3-asr-0.6b-hf"
 DEFAULT_QWEN_MODEL = "0.6b-int8"
 QWEN_LARGE_MODEL = "1.7b-int8"
+QWEN_CUDA_BUNDLES = {
+    DEFAULT_QWEN_MODEL: QWEN_ASR_CUDA_BUNDLE,
+    QWEN_LARGE_MODEL: "qwen3-asr-1.7b-hf",
+}
 QWEN_ASR_MODELS = {
     DEFAULT_QWEN_MODEL: ("Qwen3-ASR 0.6B", QWEN_ASR_BUNDLE),
     QWEN_LARGE_MODEL: ("Qwen3-ASR 1.7B", "sherpa-onnx-qwen3-asr-1.7b-int8"),
@@ -182,31 +186,39 @@ def loopback(stop, on_device=lambda name: None):
 
 
 class QwenASR:
-    def __init__(self, runtime, on_status=lambda msg: None, *, variant=DEFAULT_QWEN_MODEL):
+    def __init__(self, runtime, on_status=lambda msg: None, *, variant=DEFAULT_QWEN_MODEL, device="auto"):
         self.runtime, self.on_status = Path(runtime), on_status
         self.name, self.bundle = QWEN_ASR_MODELS[variant]
         self.processor = None
-        cuda = self.runtime / QWEN_ASR_CUDA_BUNDLE
-        if variant == DEFAULT_QWEN_MODEL and (cuda / "model.safetensors").is_file():
+        self.preferred_device = device
+        cuda = self.runtime / QWEN_CUDA_BUNDLES[variant]
+        if device == "cuda" or (device == "auto" and (cuda / "model.safetensors").is_file()):
             try:
-                import torch
-
-                if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-                    from transformers import AutoModelForMultimodalLM, AutoProcessor
-
-                    on_status(f"Загрузка {self.name} · CUDA…")
-                    processor = AutoProcessor.from_pretrained(cuda, local_files_only=True)
-                    self.model = AutoModelForMultimodalLM.from_pretrained(
-                        cuda, local_files_only=True, dtype=torch.bfloat16,
-                        attn_implementation="sdpa",
-                    ).to("cuda").eval()
-                    self.processor, self.torch = processor, torch
-                    self.device = "cuda"
-                    on_status(f"{self.name} · CUDA")
-                    return
+                self._load_cuda(cuda)
+                return
             except (ImportError, OSError, RuntimeError, ValueError):
+                if device == "cuda":
+                    raise
                 on_status("Qwen ASR на GPU недоступен. Загружаю Qwen ASR на CPU…")
         self._load_cpu()
+
+    def _load_cuda(self, folder):
+        if not (folder / "model.safetensors").is_file():
+            raise FileNotFoundError(f"Модель {self.name} BF16 не скачана. Выбери её в настройках.")
+        import torch
+
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+            raise RuntimeError("Qwen ASR требует NVIDIA GPU с поддержкой BF16 и рабочий драйвер CUDA.")
+        from transformers import AutoModelForMultimodalLM, AutoProcessor
+
+        self.on_status(f"Загрузка {self.name} · CUDA…")
+        processor = AutoProcessor.from_pretrained(folder, local_files_only=True)
+        self.model = AutoModelForMultimodalLM.from_pretrained(
+            folder, local_files_only=True, dtype=torch.bfloat16, attn_implementation="sdpa",
+        ).to("cuda").eval()
+        self.processor, self.torch = processor, torch
+        self.device = "cuda"
+        self.on_status(f"{self.name} · CUDA")
 
     def _load_cpu(self):
         import sherpa_onnx
@@ -236,6 +248,8 @@ class QwenASR:
             try:
                 return self._decode_cuda(audio, glossary)
             except self.torch.OutOfMemoryError:
+                if self.preferred_device == "cuda":
+                    raise
                 self.processor = self.model = None
                 self.torch.cuda.empty_cache()
                 self._load_cpu()
@@ -451,9 +465,10 @@ class SpeechSession:
 
 
 def create_asr(runtime, engine="qwen", on_status=lambda msg: None, *, url="", model="", download=False,
-               whisper_model=DEFAULT_WHISPER_MODEL, whisper_device="auto", qwen_model=DEFAULT_QWEN_MODEL):
+               whisper_model=DEFAULT_WHISPER_MODEL, whisper_device="auto", qwen_model=DEFAULT_QWEN_MODEL,
+               qwen_device="auto"):
     if engine == "qwen":
-        return QwenASR(runtime, on_status, variant=qwen_model)
+        return QwenASR(runtime, on_status, variant=qwen_model, device=qwen_device)
     if engine == "whisper":
         return FasterWhisperASR(runtime, on_status, download=download, variant=whisper_model,
                                 device=whisper_device)
