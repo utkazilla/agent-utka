@@ -36,6 +36,9 @@ def stage(payload, vc_redist, wheelhouse):
     for name in (*PUBLIC_FILES, "LICENSE"):
         if name.startswith(("assets/", "copilot/", "docs/examples/")) or name in {
             "README.md", "LICENSE", "settings.example.json",
+            "docs/knowledge-pack-prompt.md",
+            "docs/knowledge-pack-prompt.ru.md",
+            "docs/knowledge-pack-prompt.es.md",
         }:
             source = public_file(name)
             target = payload / name
@@ -99,10 +102,12 @@ def smoke_test(directory):
 import ssl, sys, tkinter as tk
 from pathlib import Path
 from tkinter import ttk
+from unittest.mock import patch
 import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad
 from copilot.app import Overlay
 from copilot.bootstrap import setup_needed, setup_window
 from copilot.configuration import RUNTIME, load_settings
+from copilot.settings_window import show_settings
 
 assert Path(sys.prefix).resolve() == Path.cwd() / 'python'
 ssl.create_default_context()
@@ -111,21 +116,36 @@ assert setup_needed(RUNTIME, settings)
 window = tk.Tk()
 window.iconbitmap(default=str(Path.cwd() / "assets" / "utka.ico"))
 
-def open_app(widget):
-    if isinstance(widget, ttk.Button) and widget.cget('text') == 'Open app':
+def invoke_button(widget, text):
+    if isinstance(widget, ttk.Button) and widget.cget('text') == text:
         widget.invoke()
         return True
-    return any(open_app(child) for child in widget.winfo_children())
+    return any(invoke_button(child, text) for child in widget.winfo_children())
 
-window.after_idle(lambda: open_app(window) or window.destroy())
+window.after_idle(lambda: invoke_button(window, 'Open app') or window.destroy())
 assert setup_window(window, settings)
 overlay = Overlay(window, settings, demo=True)
 try:
     window.update()
     assert window.winfo_viewable() and overlay.transcript.winfo_ismapped()
+    for language, suffix, label in (
+        ('en', '', 'Copy prompt'),
+        ('ru', '.ru', 'Копировать промпт'),
+        ('es', '.es', 'Copiar prompt'),
+    ):
+        overlay.ui_language = language
+        show_settings(overlay)
+        popup = overlay.settings_window
+        try:
+            template = Path('docs', f'knowledge-pack-prompt{suffix}.md').read_text(encoding='utf-8')
+            with patch.object(popup, 'clipboard_clear'), patch.object(popup, 'clipboard_append') as copy:
+                assert invoke_button(popup, label), label
+                copy.assert_called_once_with(template)
+        finally:
+            popup.destroy()
 finally:
     overlay.close()
-print('The installed setup dialog and main window opened with bundled Python.')
+print('The setup dialog, main window, and all three prompt buttons passed with bundled Python.')
 """], cwd=directory, env=env, check=True, timeout=60)
     subprocess.run([*python, "-m", "pip", "--version"], cwd=directory, env=env, check=True, timeout=60)
 

@@ -92,6 +92,8 @@ jobs:
 
           If you skip first-run setup, **Download and select** in the answer model catalog now installs built-in Ollama before downloading the model.
 
+          **Copy prompt** in Knowledge base settings includes the English, Russian, and Spanish templates.
+
           The installer was tested by installing and starting the app with its own Python. The SHA-256 file is provided for download verification.
 
           [See the transcript, selected question, and cited answer in the demo.](https://github.com/utkazilla/agent-utka#see-it-in-action)
