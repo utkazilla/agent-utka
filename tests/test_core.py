@@ -40,7 +40,7 @@ class KnowledgeTest(unittest.TestCase):
     def test_refresh_updates_deletes_and_scopes_sources(self):
         from copilot.knowledge import Knowledge
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
+            base = Path(tmp).resolve()
             a, b = base / "a", base / "b"
             a.mkdir()
             b.mkdir()

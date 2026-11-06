@@ -79,7 +79,7 @@ class KnowledgePackTest(unittest.TestCase):
 
     def test_new_root_pack_takes_precedence_and_ignored_pack_falls_back(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
+            base = Path(tmp).resolve()
             root = base / "Atlas"
             root.mkdir()
             preferred = root / "utka-cue-knowledge.md"

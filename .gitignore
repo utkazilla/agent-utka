@@ -19,7 +19,14 @@ settings.local.json
 *.bin
 *.npy
 *.npz
+sha256-*
 *.sqlite*
 *.db
 *.wav
 *.log
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
