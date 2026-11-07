@@ -7,7 +7,7 @@ Agent Utka is a local AI assistant for technical calls on Windows. It transcribe
 ## How it works
 
 1. **Listen.** Agent Utka captures audio from the default Windows playback device and adds recognized speech to the transcript. Route Teams, Zoom, Meet, Discord, or your browser through that device. The app can hear other audio playing on the same output. Your microphone is outside the capture unless Windows plays it back through that output.
-2. **Ask.** Select a passage in the transcript and press **Ask** or **Ctrl+Enter**. Without a selection, the app uses the latest utterance. New speech keeps appearing while you read the answer.
+2. **Ask.** Select a passage in the transcript and press **Ask** or **Ctrl+Enter**. Without a selection, the transcript action uses the latest utterance. You can also type or paste your own question into **Your question** and click its **Ask** button or press **Ctrl+Enter** inside the field. No audio is needed for typed questions. Both use the selected knowledge base or **All bases**, with sources and answer history.
 3. **Check the source.** The app searches the selected project and uses a local model to find a supporting excerpt. Open **Sources** to see the file and line number. If there is insufficient evidence, it shows **No answer in the knowledge base**. **History** lets you revisit previous answers.
 
 ## See it in action

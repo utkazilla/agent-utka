@@ -316,6 +316,28 @@ class Overlay:
         self._label(action, var=self.selection_status, color=MUTED, size=9, bg=SURFACE, wrap=280).pack(
             side="left", fill="x", expand=True)
 
+        composer = tk.Frame(self.card_frame, bg=BG)
+        composer.pack(fill="x", pady=(8, 0))
+        self._label(composer, "Свой вопрос · Ctrl+Enter", color=MUTED, size=9,
+                    localized=True).pack(anchor="w", pady=(0, 4))
+        input_row = tk.Frame(composer, bg=BG)
+        input_row.pack(fill="x")
+        self.typed_question = tk.Text(input_row, width=1, height=2, wrap="word",
+                                      bg=SURFACE, fg=INK, insertbackground=INK, font=("Segoe UI", 10),
+                                      relief="flat", padx=6, pady=5, borderwidth=0,
+                                      highlightthickness=1, highlightbackground=BORDER,
+                                      highlightcolor=ACCENT, undo=True, exportselection=False,
+                                      selectbackground="#3e6052", selectforeground="#ffffff")
+        self.typed_ask_button = self._button(input_row, "Спросить", self._ask_typed,
+                                            primary=True, localized=True)
+        self.typed_ask_button.pack(side="right", padx=(8, 0))
+        self.typed_ask_button.state(["disabled"])
+        self.typed_question.pack(side="left", fill="x", expand=True)
+        self.typed_question.bind("<<Modified>>", self._typed_changed)
+        self.typed_question.bind("<Control-Return>", self._ask_typed)
+        self.typed_question.bind("<Tab>", lambda _: self._question_focus(False))
+        self.typed_question.bind("<Shift-Tab>", lambda _: self._question_focus(True))
+
         response = tk.Frame(self.card_frame, bg=SURFACE, padx=10, pady=6,
                             highlightbackground=BORDER, highlightthickness=1)
         response.pack(fill="both", expand=True, pady=(8, 0))
@@ -331,7 +353,7 @@ class Overlay:
         self.answer_area = tk.Frame(response, bg=SURFACE, height=92)
         self.answer_area.pack(fill="both", expand=True, pady=(3, 0))
         self.answer_area.pack_propagate(False)
-        self.answer_empty = self._label(self.answer_area, "Выдели фрагмент или спроси по последней реплике.",
+        self.answer_empty = self._label(self.answer_area, "Выдели реплику или напиши свой вопрос.",
                                         color=MUTED, size=10, bg=SURFACE, localized=True)
         self._label(response, var=self.answer_status, color=ACCENT, size=8,
                     bg=SURFACE).pack(fill="x")
@@ -814,8 +836,25 @@ class Overlay:
 
     def _ask_selection(self, _event=None):
         text = self._selected_text() or self.last_utterance
+        return self._request_answer(text, "Дождись реплики в расшифровке.")
+
+    def _typed_changed(self, _event=None):
+        self.typed_ask_button.state(
+            ["!disabled"] if self.typed_question.get("1.0", "end-1c").strip() else ["disabled"])
+        self.typed_question.edit_modified(False)
+
+    def _question_focus(self, previous):
+        target = self.typed_question.tk_focusPrev() if previous else self.typed_question.tk_focusNext()
+        target.focus_set()
+        return "break"
+
+    def _ask_typed(self, _event=None):
+        return self._request_answer(self.typed_question.get("1.0", "end-1c").strip(),
+                                    "Напиши вопрос в поле.")
+
+    def _request_answer(self, text, empty_message):
         if not text:
-            self._set_copy(self.answer_status, "Дождись реплики в расшифровке.")
+            self._set_copy(self.answer_status, empty_message)
         elif self.project is None:
             self._set_copy(self.answer_status, "Импортируй выжимку, чтобы получать ответы.")
         elif self.import_target == self.project or (self.index is not None and self.indexed_count is None):
@@ -1204,6 +1243,52 @@ def main():
         app._projects([Project("Все базы", first), Project("Все базы · 1", second)])
         assert len(app.bases) == 2
         assert set(app.projects["Все базы"]) == {first, second}
+        app.pipeline = ManualRequest()
+        app.project = (first, second)
+        app.typed_question.insert("1.0", "  Какой срок хранения?\nИ кто его меняет?  ")
+        window.update()
+        assert app.typed_ask_button.instate(["!disabled"])
+        app.transcript.tag_add("sel", "1.0", "1.3")
+        selected = app._selected_text()
+        app._turn("transcript", "Новая речь во время ввода")
+        app.typed_question.focus_force()
+        window.update()
+        app.typed_question.event_generate("<Control-Return>")
+        window.update()
+        assert calls[-1] == ("Какой срок хранения?\nИ кто его меняет?", (first, second))
+        assert app._selected_text() == selected
+        assert app.typed_question.get("1.0", "end-1c").strip() == calls[-1][0]
+        app._turn("card", (calls[-1][0], card, .8))
+        assert app.entries[-1].text == calls[-1][0]
+        app.project = first
+        app.typed_ask_button.invoke()
+        assert calls[-1][1] == first
+        app.typed_question.delete("1.0", "end")
+        app.typed_question.insert("1.0", "  \n ")
+        window.update()
+        assert app.typed_ask_button.instate(["disabled"])
+        count = len(calls)
+        app.typed_question.event_generate("<Control-Return>")
+        window.update()
+        assert len(calls) == count, "Blank typed input must not send the selected transcript"
+        app.transcript.configure(state="normal")
+        app.transcript.delete("1.0", "end")
+        app.transcript.configure(state="disabled")
+        app.last_utterance = ""
+        app.live.clear()
+        app.typed_question.delete("1.0", "end")
+        app.typed_question.insert("1.0", "How does Orbit work?")
+        window.update()
+        app.typed_question.event_generate("<Tab>")
+        window.update()
+        assert window.focus_get() == app.typed_ask_button
+        app.typed_ask_button.invoke()
+        assert calls[-1] == ("How does Orbit work?", first), "Typed questions must work without speech"
+        count = len(calls)
+        app.project = None
+        app.typed_ask_button.invoke()
+        assert len(calls) == count
+        assert app.typed_question.get("1.0", "end-1c") == "How does Orbit work?"
         app.close()
         print("Overlay resizes and maximizes, appends paragraphs and preserves selection and layout")
     else:

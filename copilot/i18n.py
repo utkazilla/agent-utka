@@ -33,6 +33,9 @@ def flag_images(master):
 
 
 OVERLAY_COPY = {
+    "Свой вопрос · Ctrl+Enter": ("Your question · Ctrl+Enter", "Tu pregunta · Ctrl+Enter"),
+    "Спросить": ("Ask", "Preguntar"),
+    "Напиши вопрос в поле.": ("Type a question in the field.", "Escribe una pregunta en el campo."),
     "Все базы": ("All bases", "Todas las bases"),
     "Добавить в базу": ("Add to knowledge base", "Añadir a una base"),
     "Новая база…": ("New base…", "Nueva base…"),
@@ -85,8 +88,8 @@ OVERLAY_COPY = {
     "Ответ": ("Answer", "Respuesta"),
     "Источники": ("Sources", "Fuentes"),
     "Источники · {count}": ("Sources · {count}", "Fuentes · {count}"),
-    "Выдели фрагмент или спроси по последней реплике.": (
-        "Select a passage or ask about the latest remark.", "Selecciona un fragmento o pregunta por la última intervención."),
+    "Выдели реплику или напиши свой вопрос.": (
+        "Select a passage or type your own question.", "Selecciona un fragmento o escribe tu pregunta."),
     "К последней": ("Latest", "Última"),
     "История": ("History", "Historial"),
     "Слушать": ("Listen", "Escuchar"),

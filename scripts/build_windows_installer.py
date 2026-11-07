@@ -227,6 +227,7 @@ finally:
 print('The setup dialog, model picker, prompt buttons and knowledge browser passed with bundled Python.')
 """], cwd=directory, env=env, check=True, timeout=60)
     subprocess.run([*python, "-m", "pip", "--version"], cwd=directory, env=env, check=True, timeout=60)
+    subprocess.run([*python, "-m", "copilot.app", "--ui-test"], cwd=directory, env=env, check=True, timeout=60)
 
 
 def compile_installer(iscc, version, payload, output):

@@ -61,6 +61,8 @@ In **Add to knowledge base**, choose an existing base or **New base…**. For a 
 
 The selector on the main screen controls where answers are searched: one named base or **All bases**. **Browse knowledge** uses that same selection. Combined results and citations include the originating base.
 
+To ask without speech, type or paste into **Your question** on the main screen. Click **Ask** beside that field or press **Ctrl+Enter** inside it; Enter inserts a new line. Typed questions use the selected base or **All bases**, and their answers appear in the same history with sources. Your draft stays available for editing and incoming speech does not change it.
+
 Import an updated version from the same original file location into the same base to replace that document. Different source files remain separate even when their filenames match. Imported copies are stored under `.runtime/knowledge`, and the search index is `.runtime/agent-utka-imports.sqlite`. Storage is managed automatically. Advanced users can change the index location in Settings.
 
 ## Prepare and update a pack with Codex or Claude Code

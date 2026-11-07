@@ -90,6 +90,7 @@ jobs:
           - **Copy prompt → Import summary** on the main screen. Pick an existing named knowledge base or create one without choosing a storage folder.
           - **Multiple documents per base.** Reimporting the same original file into the same base updates its copy. Different files with identical names stay separate.
           - **All bases search.** Search one base or all imported bases. Citations and the knowledge browser retain the originating base.
+          - **Type your own question.** Write or paste a question on the main screen and press its Ask button or Ctrl+Enter in the field. Works without speech and uses the selected base or All bases, with citations and answer history.
           - **Complete project-memory prompts in English, Russian and Spanish.** The prompts cover accessible conversation history, code structure, MR/PR changes and review discussions, linked documentation, source provenance, historical decisions and coverage gaps. They do not impose output-length or full-glossary entry quotas.
           - **Large knowledge documents.** Removed the 180 KB import cap and the 200-entry glossary cap. Long paragraphs retain their full text and original citation lines.
           - **Model/settings improvements.** Saved model changes apply in the current session, selection dialogs close after saving, and dependency downloads show progress.
