@@ -1208,14 +1208,20 @@ def main():
         transcript_size = app.transcript.winfo_width(), app.transcript.winfo_height()
         answer_size = app.options[0][1].winfo_width(), app.options[0][1].winfo_height()
         assert all(window.resizable()), "The normal window must allow user resizing"
-        large_size = (compact_width + 250, compact_height + 160)
+        max_width, max_height = window.maxsize()
+        large_size = (min(compact_width + 250, max_width), min(compact_height + 160, max_height))
         window.geometry(f"{large_size[0]}x{large_size[1]}+10+10")
         resized_layout = layout()
-        assert (window.winfo_width(), window.winfo_height()) == large_size
+        assert (window.winfo_width(), window.winfo_height()) == large_size, (
+            window.winfo_geometry(), large_size, window.maxsize())
         assert app.transcript.winfo_width() > transcript_size[0]
-        assert app.transcript.winfo_height() > transcript_size[1]
+        assert app.transcript.winfo_height() >= transcript_size[1]
+        if large_size[1] > compact_height:
+            assert app.transcript.winfo_height() > transcript_size[1]
         assert app.options[0][1].winfo_width() > answer_size[0]
-        assert app.options[0][1].winfo_height() > answer_size[1]
+        assert app.options[0][1].winfo_height() >= answer_size[1]
+        if large_size[1] > compact_height:
+            assert app.options[0][1].winfo_height() > answer_size[1]
         app._turn("transcript", "Реплика в большом окне")
         assert layout() == resized_layout
         app._fold()

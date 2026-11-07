@@ -84,7 +84,7 @@ jobs:
           sha256sum --check ./*.sha256
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "Agent Utka $GITHUB_REF_NAME" --notes-file - ./*.exe ./*.sha256 <<'NOTES'
-          Download and double-click **Agent-Utka-Setup-v0.1.11-x64.exe** on Windows 10 or 11 x64. Python is included; no terminal or separate Python installation is required.
+          Download and double-click the **Agent-Utka-Setup** Windows x64 executable below on Windows 10 or 11. Python is included; no terminal or separate Python installation is required.
 
           ### What's new
           - **Copy prompt → Import summary** on the main screen. Pick an existing named knowledge base or create one without choosing a storage folder.
