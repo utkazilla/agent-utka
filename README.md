@@ -22,7 +22,7 @@ In this demo, Qwen transcribed two spoken questions. Selecting the first one and
 
 ### See what the RAG search retrieved
 
-Select a project or import documents, then open **Settings → Knowledge base → Browse knowledge…**. Enter a question and click **Test retrieval**. Select a result to read the indexed passage and its source line.
+Select a project or import documents, then open **Open base** on the main screen. Enter a question and click **Test retrieval**. Select a result to read the indexed passage and its source line.
 
 ![Agent Utka's knowledge browser showing three ranked passages for a question about Hedwig](docs/screenshots/harry-potter-rag.jpg)
 
@@ -36,14 +36,16 @@ Select a project or import documents, then open **Settings → Knowledge base �
 
 ### Try your first answer
 
-1. Click **Import summary** and choose the [fictional Orbit knowledge pack](docs/examples/orbit-knowledge.md). Select **New base…**, keep the suggested name, and click **Import**. Wait for **Ready**.
+1. Click **Import** and choose the [fictional Orbit knowledge pack](docs/examples/orbit-knowledge.md). Select **New base…**, keep the suggested name, and click **Import**. Wait for **Ready**.
 2. Play or synthesize the question “How long does the Orbit sync worker wait before retrying a temporary failure?” through the default Windows output. [Text-to-speech example](docs/tutorial.md#create-a-knowledge-base-and-try-an-answer)
 3. Select the question in the transcript and press **Ask**. The expected answer is **5 seconds**. Open **Sources** to see the supporting line.
 
 ## Use your own project
 
+The main window always offers **New base**, **Copy prompt**, **Import**, and **Open base**. You can create an empty named base before generating any documents; it stays available after restarting. Select that base when you import your summary. **All bases** combines search across your bases and is not an import destination.
+
 1. Click **Copy prompt** on the main screen and paste it into the Codex or Claude Code conversation where you worked on the project.
-2. Review the generated `utka-cue-knowledge.md`, then click **Import summary**, select that file, and choose an existing base or **New base…**.
+2. Review the generated `utka-cue-knowledge.md`, then click **Import**, select that file, and choose an existing base or **New base…**.
 
 The prompt builds a detailed project reference from accessible conversation history, code, MR/PR changes and reviews, and connected documentation, with sources and explicit coverage gaps. Imported documents have no application-imposed size cap.
 

@@ -153,6 +153,36 @@ def _source_identity(source):
     return hashlib.sha256(os.path.normcase(str(Path(source).expanduser().resolve())).encode("utf-8")).hexdigest()[:20]
 
 
+def create_named_base(runtime, name):
+    name = " ".join(name.split())
+    if not name or len(name) > 100:
+        raise ValueError("Введи название базы — до 100 символов.")
+    library = Path(runtime) / "knowledge"
+    key = hashlib.sha256(("base:" + name.casefold()).encode("utf-8")).hexdigest()[:20]
+    root = library / key
+    if library.is_symlink() or library.is_junction() or root.is_symlink() or root.is_junction():
+        raise ValueError("Папка базы знаний не может быть ссылкой.")
+    if root.exists():
+        raise ValueError("Такая база уже есть. Выбери её в списке.")
+    create_workspace(root)
+    _save_base_metadata(root, {"name": name, "imports": {}, "document_names": {}})
+    return root.resolve()
+
+
+def _save_base_metadata(root, metadata):
+    folder = _import_folder(create_workspace(root))
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder.parent,
+                                         prefix=".base-", delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(metadata, stream, ensure_ascii=False)
+        os.replace(temporary, folder.parent / "base.json")
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def import_title(root, source):
     """Preserve the user's display title when the same source is imported again."""
     if root is not None:
@@ -212,17 +242,7 @@ def import_summary(runtime, source, *, target=None, name=None, document_name=Non
     if document_name is not None:
         titles[filename] = document_name
     title = metadata.get("name") or name or (summary_title(root) if imported_documents(root) else document_title(source))
-    folder = _import_folder(create_workspace(root))
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder.parent,
-                                         prefix=".base-", delete=False) as stream:
-            temporary = Path(stream.name)
-            json.dump({"name": title, "imports": copies, "document_names": titles}, stream, ensure_ascii=False)
-        os.replace(temporary, folder.parent / "base.json")
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    _save_base_metadata(root, {"name": title, "imports": copies, "document_names": titles})
     _publish_documents(root, {filename: prepared[source.name]})
     return root.resolve()
 

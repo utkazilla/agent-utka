@@ -83,7 +83,9 @@ def discover_projects(registry=REGISTRY, extra=(), *, documents_only=False, mana
         if not library.is_symlink() and not library.is_junction():
             try:
                 items.extend((summary_title(root), root) for root in library.iterdir()
-                             if not root.is_symlink() and not root.is_junction() and imported_documents(root))
+                             if not root.is_symlink() and not root.is_junction() and is_workspace(root)
+                             and ((root / ".copilot-knowledge" / "base.json").is_file()
+                                  or imported_documents(root)))
             except OSError:
                 pass
     result = {}

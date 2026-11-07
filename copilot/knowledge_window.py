@@ -11,6 +11,10 @@ from .retrieval import SearchUnavailable
 
 
 COPY = {
+    "Импортировать выжимку": ("Import summary", "Importar resumen"),
+    "База пуста. Нажми «Импортировать выжимку», чтобы добавить документ.": (
+        "This base is empty. Click Import summary to add a document.",
+        "Esta base está vacía. Pulsa Importar resumen para añadir un documento."),
     "Просмотр базы знаний": ("Knowledge browser", "Explorador de la base"),
     "Документы": ("Documents", "Documentos"),
     "Проверить поиск": ("Test retrieval", "Probar la búsqueda"),
@@ -58,7 +62,7 @@ def show_knowledge_window(app, parent, index, root):
     app._button(footer, t("Закрыть"), w.destroy).pack(side="right")
     controls = tk.Frame(frame, bg=bg)
     controls.pack(fill="x", pady=8)
-    query = ttk.Entry(controls, style="Copilot.Settings.TEntry")
+    query = ttk.Entry(controls, style="Copilot.TEntry")
     query.pack(side="left", fill="x", expand=True)
     panes = ttk.Panedwindow(frame, orient="horizontal")
     panes.pack(fill="both", expand=True)
@@ -133,6 +137,8 @@ def show_knowledge_window(app, parent, index, root):
             rows[key] = value
         status.set(t("Найдено фрагментов · {count}" if hits else "Документов в индексе · {count}",
                      count=len(values)))
+        if not hits and not values:
+            status.set(t("База пуста. Нажми «Импортировать выжимку», чтобы добавить документ."))
         if hits and rows:
             tree.selection_set(next(iter(rows)))
 
@@ -171,6 +177,10 @@ def show_knowledge_window(app, parent, index, root):
 
     app._button(controls, t("Проверить поиск"), search, primary=True).pack(side="left", padx=6)
     app._button(controls, t("Документы"), documents).pack(side="left")
+    def import_document():
+        w.destroy()
+        app._import_knowledge()
+    app._button(controls, t("Импортировать выжимку"), import_document).pack(side="right")
     query.bind("<Return>", search)
     tree.bind("<<TreeviewSelect>>", selected)
     w.bind("<Escape>", lambda _: w.destroy())

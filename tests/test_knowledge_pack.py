@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 from copilot.asr_glossary import project_asr_glossary
 from copilot.knowledge import Knowledge, discover_projects, source_location
-from copilot.knowledge_pack import PACK_FENCE, PACK_FILENAME, create_workspace, import_documents, import_summary, import_title
+from copilot.knowledge_pack import (PACK_FENCE, PACK_FILENAME, create_workspace, import_documents,
+                                   import_summary, import_title, create_named_base)
 
 
 def pack(text, term, heard, *, fence=PACK_FENCE, **rule):
@@ -18,6 +19,22 @@ def pack(text, term, heard, *, fence=PACK_FENCE, **rule):
 
 
 class KnowledgePackTest(unittest.TestCase):
+    def test_empty_named_base_can_be_selected_after_restart_then_receive_documents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / "runtime"
+            root = create_named_base(runtime, "  Atlas  ")
+            projects = discover_projects(documents_only=True, managed=runtime / "knowledge")
+            self.assertEqual([(p.name, p.root) for p in projects], [("Atlas", root)])
+            index = Knowledge(runtime / "test.sqlite", documents_only=True)
+            self.assertEqual(index.refresh(root)[0], 0)
+            with self.assertRaises(ValueError):
+                create_named_base(runtime, "atlas")
+            source = Path(tmp) / "summary.md"
+            source.write_text("Oranges grow here.", encoding="utf-8")
+            self.assertEqual(import_summary(runtime, source, target=root), root)
+            self.assertEqual(index.refresh(root)[0], 1)
+            self.assertTrue(index.search(root, "Oranges"))
+
     def test_document_name_changes_without_renaming_source_or_losing_update_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -50,7 +67,7 @@ class KnowledgePackTest(unittest.TestCase):
             source.write_text("# Atlas knowledge\n\nOranges grow here.", encoding="utf-8")
             import_documents(root, [source])
             projects = discover_projects(extra=[str(root)], documents_only=True)
-            self.assertEqual([(p.name, p.root) for p in projects], [("Atlas knowledge", root)])
+            self.assertEqual([(p.name, p.root) for p in projects], [("Atlas knowledge", root.resolve())])
 
     def test_invalid_document_name_does_not_create_a_base(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -106,9 +106,9 @@ from unittest.mock import patch
 import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad
 from copilot.app import Overlay
 from copilot.bootstrap import setup_needed, setup_window
-from copilot.configuration import RUNTIME, load_settings
+from copilot.configuration import RUNTIME, load_settings, save_settings
 from copilot.knowledge import Knowledge
-from copilot.knowledge import discover_projects
+from copilot.knowledge import discover_projects, source_location
 from copilot.knowledge_pack import import_summary
 from copilot.knowledge_import import choose_import_destination
 from copilot.settings_window import show_settings
@@ -139,6 +139,82 @@ try:
     window.update()
     assert window.winfo_viewable() and overlay.transcript.winfo_ismapped()
     assert not whisper_cuda_installed()
+    with tempfile.TemporaryDirectory(prefix='utka-main-flow-') as folder:
+        runtime = Path(folder) / 'runtime'
+        configuration = Path(folder) / 'settings.json'
+        overlay.settings['extra_roots'] = []
+        overlay.settings['project'] = ''
+        overlay._projects([])
+        assert not any(isinstance(child, tk.Toplevel) for child in window.winfo_children())
+        assert overlay.new_base_button.winfo_ismapped()
+        errors = []
+
+        def create_from_main():
+            popup = next(w for w in window.winfo_children() if isinstance(w, tk.Toplevel))
+            try:
+                field = next(w for w in descendants(popup) if w.winfo_name() == 'base_name')
+                field.insert(0, 'Voyager')
+                assert invoke_button(popup, overlay._tr('Создать базу'))
+            except Exception as error:
+                errors.append(error)
+                popup.destroy()
+
+        with patch('copilot.app.RUNTIME', runtime), patch(
+                'copilot.app.save_settings', lambda values: save_settings(values, configuration)):
+            window.after(100, create_from_main)
+            overlay.new_base_button.invoke()
+            assert not errors, errors
+            assert list(overlay.bases) == ['Voyager']
+            assert overlay.project == next(iter(overlay.bases.values()))
+            assert load_settings(configuration)['project'] == str(overlay.project)
+            assert len(discover_projects(documents_only=True, managed=runtime / 'knowledge')) == 1
+            window.after(100, lambda: invoke_button(window, overlay._tr('Отмена')))
+            overlay.new_base_button.invoke()
+            assert len(overlay.bases) == 1
+            overlay.index = Knowledge(runtime / 'test.sqlite', documents_only=True)
+            assert overlay.index.refresh(overlay.project)[0] == 0
+            for _ in range(2):
+                overlay.browse_button.invoke()
+                browser = overlay.knowledge_window
+                assert browser.winfo_exists()
+                until = time.monotonic() + 5
+                while time.monotonic() < until:
+                    window.update()
+                    labels = [str(w.cget('text')) for w in descendants(browser) if isinstance(w, tk.Label)]
+                    if any('Import' in text or 'Импортировать' in text or 'Importar' in text for text in labels):
+                        break
+                    time.sleep(.05)
+                else:
+                    raise AssertionError('Empty base did not provide an import recovery action.')
+                browser.destroy()
+            overlay.knowledge_window = None
+            source = Path(folder) / 'summary.md'
+            source.write_text('# Voyager\\nRetry delay is 9 seconds.', encoding='utf-8')
+
+            def name_import():
+                popup = next(w for w in window.winfo_children() if isinstance(w, tk.Toplevel))
+                try:
+                    field = next(w for w in descendants(popup) if w.winfo_name() == 'document_name')
+                    field.delete(0, 'end')
+                    field.insert(0, 'Decisions')
+                    assert invoke_button(popup, overlay._tr('Импортировать'))
+                except Exception as error:
+                    errors.append(error)
+                    popup.destroy()
+
+            with patch('copilot.app.filedialog.askopenfilename', return_value=str(source)):
+                window.after(100, name_import)
+                overlay.import_button.invoke()
+            assert not errors, errors
+            until = time.monotonic() + 5
+            while overlay.import_target is not None and time.monotonic() < until:
+                window.update()
+                time.sleep(.05)
+            assert overlay.import_target is None
+            assert overlay.index.refresh(overlay.project)[0] == 1
+            hit = overlay.index.search(overlay.project, 'retry delay')[0]
+            assert source_location(overlay.project, hit.path) == 'Decisions (summary.md)'
+            overlay.index = None
     with tempfile.TemporaryDirectory(prefix='utka-large-import-') as folder:
         base = Path(folder)
         document = base / 'notes.md'
@@ -240,7 +316,7 @@ try:
         overlay.ui_language = 'en'
         show_settings(overlay)
         popup = overlay.settings_window
-        assert invoke_button(popup, 'Browse knowledge…')
+        assert invoke_button(popup, 'Open base')
         browser = next(child for child in popup.winfo_children() if isinstance(child, tk.Toplevel))
         assert browser.title() == 'Knowledge browser'
         tree = next(child for child in descendants(browser) if isinstance(child, ttk.Treeview))

@@ -87,9 +87,10 @@ jobs:
           Download and double-click the **Agent-Utka-Setup** Windows x64 executable below on Windows 10 or 11. Python is included; no terminal or separate Python installation is required.
 
           ### What's new
+          - **Knowledge actions are always available.** New base creates a persistent empty base directly from the main window. Copy prompt, Import and Open base sit together above the transcript. An empty knowledge browser offers an import action.
           - **Name each summary during import.** Document names and knowledge-base names are separate. An explicit New base button creates a destination; Sources and the knowledge browser show the chosen document name. Reimporting the same original file preserves or updates that name without duplicates.
           - **Legacy base labels fixed.** Old imported bases use their knowledge title instead of the name of their storage folder.
-          - **Copy prompt → Import summary** on the main screen. Pick an existing named knowledge base or create one without choosing a storage folder.
+          - **Copy prompt → Import** on the main screen. Pick an existing named knowledge base or create one without choosing a storage folder.
           - **Multiple documents per base.** Reimporting the same original file into the same base updates its copy. Different files with identical names stay separate.
           - **All bases search.** Search one base or all imported bases. Citations and the knowledge browser retain the originating base.
           - **Type your own question.** Write or paste a question on the main screen and press its Ask button or Ctrl+Enter in the field. Works without speech and uses the selected base or All bases, with citations and answer history.
@@ -100,7 +101,7 @@ jobs:
           ### Getting started
           Open **Agent Utka** from Start. **Download and start** prepares Qwen speech recognition and portable Ollama with the default answer model. Allow about 6 GB of downloads and 12 GB of free disk space during initial setup. Models are downloaded to your PC and are not bundled in this release.
 
-          Copy the project-memory prompt into your project conversation, review the generated Markdown, then import it into the desired base. Select transcript text and press **Ask** or **Ctrl+Enter**. Open **Sources** to inspect the evidence, or **Settings → Knowledge base → Browse knowledge** to test retrieval.
+          Copy the project-memory prompt into your project conversation, review the generated Markdown, then import it into the desired base. Select transcript text and press **Ask** or **Ctrl+Enter**. Open **Sources** to inspect the evidence, or **Open base** on the main screen to test retrieval.
 
           Speech and answer providers remain independently configurable. Qwen3-ASR 0.6B and 1.7B support CPU and NVIDIA GPU; Faster Whisper CUDA dependencies are downloaded on demand. Loaded models can be unloaded through Settings.
 

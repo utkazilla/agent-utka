@@ -46,10 +46,10 @@ COPY = {
     "Распознавание выгружается…": ("Unloading speech model…", "Liberando el modelo de voz…"),
     "Модель распознавания не загружена.": ("No speech model is loaded.", "No hay un modelo de voz cargado."),
     "Моделью управляет локальный сервер.": ("The local server manages the model.", "El servidor local gestiona el modelo."),
-    "Посмотреть индекс…": ("Browse knowledge…", "Explorar la base…"),
-    "Выбери проект или импортируй документы, чтобы открыть индекс.": (
-        "Choose a project or import documents to open the index.",
-        "Elige un proyecto o importa documentos para abrir el índice.",
+    "Открыть базу": ("Open base", "Abrir base"),
+    "Создай или выбери базу на главном экране.": (
+        "Create or select a base on the main screen.",
+        "Crea o selecciona una base en la pantalla principal.",
     ),
     "Диспетчер задач": ("Task Manager", "Administrador de tareas"),
     "Выгружаю {name} из Ollama…": ("Unloading {name} from Ollama…", "Liberando {name} de Ollama…"),
@@ -754,11 +754,11 @@ def show_settings(app):
         if knowledge_window is not None and knowledge_window.winfo_exists():
             knowledge_window.lift()
         elif app.project is None or app.index is None:
-            show_feedback("Выбери проект или импортируй документы, чтобы открыть индекс.")
+            show_feedback("Создай или выбери базу на главном экране.")
         else:
             knowledge_window = show_knowledge_window(app, popup, app.index, app.project)
 
-    button(knowledge_section, "Посмотреть индекс…", browse_knowledge).grid(row=6, column=0, columnspan=2,
+    button(knowledge_section, "Открыть базу", browse_knowledge).grid(row=6, column=0, columnspan=2,
                                                                         sticky="e", pady=(7, 0))
 
     def cleanup(event):

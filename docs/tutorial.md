@@ -30,8 +30,10 @@ To configure your own services before the first setup, copy `settings.example.js
 
 ## Create a knowledge base and try an answer
 
+**New base** is always available beside the knowledge selector on the main screen. Enter a name and click **Create base**. No document or folder is required. Your empty base is selected immediately and remains available after restarting. Then use **Copy prompt** or **Import**. **Open base** shows its documents and retrieval results; an empty base offers an import action.
+
 1. Save the fictional [Orbit Sync example](examples/orbit-knowledge.md) on your PC.
-2. Click **Import summary**, select that file, choose **New base…**, and click **Import**. Wait for **Ready**. Agent Utka creates and selects the base.
+2. Click **Import**, select that file, choose **New base…**, and click **Import**. Wait for **Ready**. Agent Utka creates and selects the base.
 3. Play the question **“How long does the Orbit sync worker wait before retrying a temporary failure?”** through the default Windows output. You can play a recording or generate the question locally using Windows PowerShell. Run the following while Agent Utka is listening.
 
    ~~~powershell
@@ -55,11 +57,11 @@ To configure your own services before the first setup, copy `settings.example.js
 
 ## Connect your own project
 
-Click **Copy prompt** on the main screen and paste it into Codex or Claude Code in your project. Review the summary it creates, then click **Import summary** and select the file.
+Click **Copy prompt** on the main screen and paste it into Codex or Claude Code in your project. Review the summary it creates, then click **Import** and select the file.
 
 In **Add to knowledge base**, choose an existing base or **New base…**. For a new base, the document's first heading supplies a suggested name that you can edit. Click **Import** and wait for **Ready**. Several summaries can belong to one base. Files must be UTF‑8 `.md` or `.txt`. Explicit imports have no application-imposed file-size cap. Export or convert PDFs, Word documents, and wiki pages to Markdown or text first.
 
-The selector on the main screen controls where answers are searched: one named base or **All bases**. **Browse knowledge** uses that same selection. Combined results and citations include the originating base.
+The selector on the main screen controls where answers are searched: one named base or **All bases**. **Open base** uses that same selection. Combined results and citations include the originating base.
 
 In the import dialog, **Document name** controls the document's display name in sources and the knowledge browser. **Add to knowledge base** chooses its destination separately. Click **New base…** and enter a **New base name** to create one. **All bases** is a search scope, not an import destination. To rename an existing summary, reimport the same original file into the same base and edit its document name; the existing document is updated without a duplicate. The original file and its contents stay unchanged.
 
@@ -71,7 +73,7 @@ Import an updated version from the same original file location into the same bas
 
 1. Open the project in Codex or Claude Code. In Agent Utka, click **Copy prompt** on the main screen. Paste it into the coding agent's project chat. The prompt asks the agent to reconstruct all accessible project conversation history, code structure, MR/PR changes and reviews, and linked documentation, then save the detailed knowledge file as `utka-cue-knowledge.md` in the project root. It requires a source register, coverage map, historical/current labels and explicit gaps for unavailable evidence. There is no output-length or full-glossary entry quota.
 2. Review the generated file. Keep current behavior, constraints, and source paths close to each answer. A `utka-cue-asr` fenced JSON block holds exact terms and pronunciation aliases. Existing knowledge documents can use the same format as the [example pack](examples/orbit-knowledge.md).
-3. In Agent Utka, click **Import summary**, select the reviewed pack, and choose its destination base. Click **Import** and wait for **Ready**.
+3. In Agent Utka, click **Import**, select the reviewed pack, and choose its destination base. Click **Import** and wait for **Ready**.
 4. After a project change, ask the agent to refresh the pack, review it, then import it from the same file location into the same base. Citations point to lines in the imported pack. Keep original source links inside the pack.
 
 Existing packs named `utka-knowledge.md` or `call-copilot-knowledge.md` and glossary blocks marked `utka-asr` or `call-copilot-asr` also work when imported.
@@ -109,7 +111,7 @@ With another local LLM server, select **OpenAI-compatible · local**, enter its 
 
 ### Inspect the knowledge index
 
-Select a project or import documents, then open **Settings → Knowledge base → Browse knowledge**. Select a document to see the indexed excerpts and their source lines. Enter a question and select **Test retrieval** to see the passages that the answer model would receive, in search order. The built-in index uses SQLite FTS5.
+Select a project or import documents, then open **Open base** on the main screen. Select a document to see the indexed excerpts and their source lines. Enter a question and select **Test retrieval** to see the passages that the answer model would receive, in search order. The built-in index uses SQLite FTS5.
 
 ### Use a local search API
 

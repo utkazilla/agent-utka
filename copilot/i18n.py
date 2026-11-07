@@ -33,6 +33,25 @@ def flag_images(master):
 
 
 OVERLAY_COPY = {
+    "Создай базу или импортируй готовую выжимку. Промпт поможет собрать знания.": (
+        "Create a base or import a summary. Use the prompt to gather knowledge.",
+        "Crea una base o importa un resumen. Usa el prompt para reunir conocimientos."),
+    "Новая база": ("New base", "Nueva base"),
+    "Название базы": ("Base name", "Nombre de la base"),
+    "Создать базу": ("Create base", "Crear base"),
+    "Открыть базу": ("Open base", "Abrir base"),
+    "Не удалось создать базу": ("Couldn't create the base", "No se pudo crear la base"),
+    "Например: проект, продукт или команда. Выжимки добавишь после создания.": (
+        "For example: a project, product or team. Add documents after creating it.",
+        "Por ejemplo: un proyecto, producto o equipo. Añade documentos después."),
+    "База создана. Скопируй промпт или импортируй готовую выжимку.": (
+        "Base created. Copy the prompt or import an existing summary.",
+        "Base creada. Copia el prompt o importa un resumen existente."),
+    "Создай или выбери базу на главном экране.": (
+        "Create or select a base on the main screen.", "Crea o selecciona una base en la pantalla principal."),
+    "Готово · напиши вопрос или выдели реплику в расшифровке.": (
+        "Ready · type a question or select a transcript passage.",
+        "Listo · escribe una pregunta o selecciona un fragmento."),
     "Название выжимки": ("Document name", "Nombre del documento"),
     "Название видно в источниках. Исходный файл не изменится.": (
         "Shown in sources. The original file stays unchanged.",

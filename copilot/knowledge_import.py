@@ -6,6 +6,58 @@ from tkinter import ttk
 from .knowledge_pack import document_title, import_title, summary_title
 
 
+def choose_base_name(app):
+    t = app._tr
+    window = tk.Toplevel(app.window)
+    window.title(t("Новая база"))
+    window.transient(app.window)
+    window.attributes("-topmost", app.top.get())
+    window.configure(bg=app.window.cget("bg"))
+    window.resizable(False, False)
+    body = tk.Frame(window, bg=window.cget("bg"), padx=16, pady=14)
+    body.pack(fill="both", expand=True)
+    app._label(body, t("Название базы"), size=14, bold=True).pack(anchor="w")
+    name = tk.StringVar()
+    entry = ttk.Entry(body, name="base_name", textvariable=name, width=42, style="Copilot.TEntry")
+    entry.pack(fill="x", pady=(8, 6))
+    app._label(body, t("Например: проект, продукт или команда. Выжимки добавишь после создания."),
+               size=9, wrap=380).pack(anchor="w")
+    feedback = tk.StringVar()
+    app._label(body, var=feedback, size=9, wrap=380).pack(fill="x", pady=(10, 8))
+    buttons = tk.Frame(body, bg=body.cget("bg"))
+    buttons.pack(fill="x")
+    result = None
+    existing = {summary_title(root).casefold() for root in app.bases.values()}
+
+    def update(*_):
+        title = " ".join(name.get().split())
+        error = ("Введи название базы — до 100 символов." if not title or len(title) > 100
+                 else "Такая база уже есть. Выбери её в списке." if title.casefold() in existing else "")
+        feedback.set(t(error) if error else "")
+        create.state(["disabled"] if error else ["!disabled"])
+
+    def submit(_event=None):
+        nonlocal result
+        if create.instate(["!disabled"]):
+            result = " ".join(name.get().split())
+            window.destroy()
+        return "break"
+
+    app._button(buttons, t("Отмена"), window.destroy).pack(side="right")
+    create = app._button(buttons, t("Создать базу"), submit, primary=True)
+    create.pack(side="right", padx=(0, 8))
+    name.trace_add("write", update)
+    window.bind("<Return>", submit)
+    window.bind("<Escape>", lambda _: window.destroy())
+    update()
+    window.update_idletasks()
+    window.geometry(f"+{app.window.winfo_rootx() + 20}+{app.window.winfo_rooty() + 65}")
+    window.grab_set()
+    entry.focus_set()
+    window.wait_window()
+    return result
+
+
 def choose_import_destination(app, source):
     t = app._tr
     window = tk.Toplevel(app.window)
