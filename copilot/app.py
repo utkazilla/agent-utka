@@ -14,8 +14,9 @@ from .brains import create_brain
 from .configuration import BASE, RUNTIME, UI_LANGUAGES, index_path, load_settings, save_settings
 from .history import Entry, History
 from .i18n import LANGUAGES, OVERLAY_COPY, flag_images, translate, translate_diagnostic
-from .knowledge import Knowledge, Source, discover_projects
-from .knowledge_pack import create_workspace, import_documents, imported_documents
+from .knowledge import Knowledge, Source, discover_projects, scope_roots, source_location
+from .knowledge_import import choose_import_destination
+from .knowledge_pack import import_summary
 from .pipeline import Pipeline
 from .retrieval import create_retriever
 from .settings_window import show_settings
@@ -39,6 +40,8 @@ class Overlay:
         self.ui = queue.SimpleQueue()
         self.project = None
         self.projects = {}
+        self.bases = {}
+        self.base_items = []
         self.last_card = None
         self.last_utterance = ""
         self.indexed_count = None
@@ -53,6 +56,9 @@ class Overlay:
         self.live = threading.Event()
         self.closed = threading.Event()
         self.scan = threading.Event()
+        self.index_generation = object()
+        self.capture_lock = threading.Lock()
+        self.capture_reset = threading.Event()
         self.llm_done = False
         self.pipeline = None
         self.speech_session = None
@@ -60,10 +66,10 @@ class Overlay:
         self.device_name = ""
         self.llm_status = ""
         self.llm = create_brain(RUNTIME, settings)
-        self.index = None if demo else Knowledge(index_path(settings), retriever=create_retriever(settings))
+        self.index = None if demo else self._create_index(settings)
         self.status = self._copy_var("Подготовка локальных моделей…")
         self.project_label = tk.StringVar()
-        self.index_status = self._copy_var("Выбери папку проекта или импортируй документ.")
+        self.index_status = self._copy_var("Скопируй промпт в Codex или Claude Code. Затем импортируй готовую выжимку.")
         self.listen_label = self._copy_var("Пауза")
         self.answer_status = self._copy_var("")
         self.selection_status = self._copy_var("Речь появится в расшифровке")
@@ -74,9 +80,64 @@ class Overlay:
         if demo:
             return
         self.live.set()
-        self._projects(discover_projects(extra=settings["extra_roots"]))
-        for job in (self._index_loop, self._warm_llm, self._boot_asr):
+        self._projects(self._known_projects())
+        self.speech_session = SpeechSession(self._speech_factory(settings, self.capture_reset), self.live.is_set)
+        self.pipeline = Pipeline(self.speech_session, Advisor(self.index, self.llm, requested=True),
+                                 lambda *event: self.ui.put(("turn", event)), manual=True, documents_only=True)
+        brain, reset = self.llm, self.capture_reset
+        for job in (self._index_loop, lambda: self._warm_llm(brain),
+                    lambda: self._warm_asr(reset), self._capture):
             threading.Thread(target=job, daemon=True).start()
+
+    def apply_settings(self, updates):
+        settings = {**self.settings, **updates}
+        changed = {key for key in updates if self.settings.get(key) != settings[key]}
+        speech_keys = {
+            "qwen": {"qwen_model", "qwen_device"},
+            "whisper": {"whisper_model", "whisper_device"},
+            "openai_local": {"stt_url", "stt_model"},
+        }
+        answer_keys = {
+            "ollama": {"ollama"},
+            "ollama_local": {"ollama_url", "ollama_model"},
+            "openai_local": {"llm_url", "llm_model"},
+        }
+        speech_changed = changed & ({"stt_engine", "pause_ms"} | speech_keys[settings["stt_engine"]])
+        answer_changed = changed & ({"llm_provider"} | answer_keys[settings["llm_provider"]])
+        index_changed = changed & {"rag_directory", "rag_provider", "rag_url"}
+        index = self._create_index(settings) if index_changed else self.index
+        brain = create_brain(RUNTIME, settings) if answer_changed else self.llm
+        save_settings(updates)
+        with self.capture_lock:
+            self.settings = settings
+            if speech_changed and self.speech_session is not None:
+                self.capture_reset.set()
+                self.capture_reset = reset = threading.Event()
+                self.speech_session.reconfigure(self._speech_factory(settings, reset))
+                self.pipeline.cancel_speech()
+        if index_changed:
+            self.index = index
+            self.index_generation = object()
+            self.indexed_count = None
+            self._set_copy(self.index_status, "Индекс обновляется…")
+            self.scan.set()
+        if (answer_changed or index_changed) and self.pipeline is not None:
+            self.pipeline.set_advisor(Advisor(index, brain, requested=True))
+            self._set_copy(self.answer_status, "")
+        if answer_changed:
+            old_brain, self.llm = self.llm, brain
+            self.llm_done = False
+            self.llm_status = ""
+            threading.Thread(target=self._warm_llm, args=(brain, old_brain), daemon=True).start()
+        if speech_changed and self.speech_session is not None:
+            if self.live.is_set():
+                self._set_copy(self.status, "Подготовка локальных моделей…")
+            threading.Thread(target=self._warm_asr, args=(reset,), daemon=True).start()
+
+    @staticmethod
+    def _create_index(settings):
+        return Knowledge(index_path(settings, documents_only=True),
+                         retriever=create_retriever(settings), documents_only=True)
 
     def _tr(self, source, **values):
         for name in ("error", "warning"):
@@ -116,7 +177,9 @@ class Overlay:
         for var, source, values in self._copy_vars.values():
             var.set(self._tr(source, **values))
         if self.project is None:
-            self.project_label.set(self._tr("Нет локального проекта"))
+            self.project_label.set(self._tr("База не выбрана"))
+        if self.base_items:
+            self._projects(self.base_items)
         self._update_overlay_controls()
         self._render_selection()
         if self.history_window:
@@ -167,6 +230,9 @@ class Overlay:
                         padding=3)
         style.map("Copilot.TCombobox", fieldbackground=[("readonly", SURFACE)],
                   foreground=[("readonly", INK)])
+        style.configure("Copilot.TEntry", fieldbackground=SURFACE, foreground=INK, insertcolor=INK,
+                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=5)
+        style.map("Copilot.TEntry", bordercolor=[("focus", ACCENT)])
         style.configure("Copilot.TMenubutton", background=SURFACE, foreground=INK,
                         bordercolor=BORDER, arrowcolor=MUTED, padding=(6, 5), font=("Segoe UI", 9))
         style.map("Copilot.TMenubutton", background=[("active", BORDER)],
@@ -295,18 +361,23 @@ class Overlay:
         base = tk.Frame(self.body, bg=BG)
         base.pack(fill="x", pady=(12, 0))
         tk.Frame(base, bg=BORDER, height=1).pack(fill="x", pady=(0, 8))
-        self._label(base, "БАЗА ЗНАНИЙ", color=MUTED, size=8, bold=True,
-                    localized=True).pack(fill="x", pady=(0, 4))
+        base_header = tk.Frame(base, bg=BG)
+        base_header.pack(fill="x", pady=(0, 6))
+        self._button(base_header, "Настройки", lambda: show_settings(self), localized=True).pack(side="right")
+        self.base_heading = self._label(base_header, "БАЗА ЗНАНИЙ", color=MUTED, size=8, bold=True,
+                                       localized=True)
+        self.base_heading.pack(side="left")
+        self.base_name = self._label(base_header, var=self.project_label, size=10, bold=True, wrap=315)
+        self.choose = ttk.Combobox(base_header, textvariable=self.project_label, state="readonly",
+                                   style="Copilot.TCombobox", width=20)
+        self.choose.bind("<<ComboboxSelected>>", self._select)
         row = tk.Frame(base, bg=BG)
         row.pack(fill="x")
-        self.choose = ttk.Combobox(row, textvariable=self.project_label, state="readonly",
-                                   style="Copilot.TCombobox", width=15)
-        self.choose.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.choose.bind("<<ComboboxSelected>>", self._select)
-        self._button(row, "Папка…", self._choose_workspace, localized=True).pack(side="left")
-        self.import_button = self._button(row, "Импорт…", self._import_knowledge, localized=True)
-        self.import_button.pack(side="left", padx=4)
-        self._button(row, "Настройки", lambda: show_settings(self), localized=True).pack(side="right")
+        self.copy_prompt_button = self._button(row, "Скопировать промпт", self._copy_knowledge_prompt,
+                                              primary=True, localized=True)
+        self.copy_prompt_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.import_button = self._button(row, "Импортировать выжимку", self._import_knowledge, localized=True)
+        self.import_button.pack(side="left", fill="x", expand=True)
         state_row = tk.Frame(base, bg=BG)
         state_row.pack(fill="x", pady=(4, 0))
         self.pin_button = self._button(state_row, "", self._pin)
@@ -389,135 +460,166 @@ class Overlay:
             self._set_copy(self.listen_label, "Пауза")
             self._set_copy(self.status, "Подключение к звуку Windows…")
 
+    def _known_projects(self):
+        return discover_projects(extra=self.settings["extra_roots"], documents_only=True,
+                                 managed=RUNTIME / "knowledge")
+
     def _projects(self, projects):
+        self.base_items = list(projects)
         counts = {}
-        for p in projects:
+        for p in self.base_items:
             counts[p.name] = counts.get(p.name, 0) + 1
-        self.projects = {(p.name if counts[p.name] == 1 else f"{p.name} · {p.root}"): p.root
-                         for p in projects}
+        seen = {}
+        self.bases = {}
+        all_label = self._tr("Все базы")
+        for p in self.base_items:
+            seen[p.name] = seen.get(p.name, 0) + 1
+            label = (p.name if counts[p.name] == 1 and p.name != all_label
+                     else f"{p.name} · {seen[p.name]}")
+            while label == all_label or label in self.bases:
+                seen[p.name] += 1
+                label = f"{p.name} · {seen[p.name]}"
+            self.bases[label] = p.root
+        self.projects = ({all_label: tuple(self.bases.values()), **self.bases} if self.bases else {})
         self.choose["values"] = list(self.projects)
+        self.base_heading.pack_forget()
+        self.base_name.pack_forget()
+        self.choose.pack_forget()
+        if len(self.projects) > 1:
+            self.choose.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        elif self.projects:
+            self.base_name.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        else:
+            self.base_heading.pack(side="left")
         current = next((n for n, p in self.projects.items() if p == self.project), None)
         if current is None:
             current = next((n for n, p in self.projects.items()
-                            if str(p) == self.settings["project"]), next(iter(self.projects), ""))
-        self.project_label.set(current or self._tr("Нет локального проекта"))
+                            if ("*" if isinstance(p, tuple) else str(p)) == self.settings["project"]),
+                           next(iter(self.bases), ""))
+        self.project_label.set(current or self._tr("База не выбрана"))
         if self.projects.get(current) != self.project:
             self._select()
-        if self.project is None:
-            self._set_copy(self.index_status, "Выбери папку проекта или импортируй документ.")
+        if self.project is not None:
+            self.copy_prompt_button.configure(style="Copilot.TButton")
+            self.import_button.configure(style="CopilotPrimary.TButton")
 
     def _select(self, _event=None):
         selected = self.projects.get(self.project_label.get())
         if _event is not None and selected is not None:
             try:
-                save_settings({"project": str(selected)})
-                self.settings["project"] = str(selected)
+                value = "*" if isinstance(selected, tuple) else str(selected)
+                save_settings({"project": value})
+                self.settings["project"] = value
             except OSError as error:
                 messagebox.showerror(self._tr("Не удалось сохранить выбор"), str(error), parent=self.window)
         self.project = selected
         self.indexed_count = None
-        self.last_utterance = ""
         if self.pipeline:
             self.pipeline.cancel_answer()
         self._close_sources()
         self._set_copy(self.answer_status, "")
         self._load_history()
-        self._set_copy(self.index_status, "Индекс обновляется…")
+        self._set_copy(self.index_status, "Подготавливаю базу…")
         self._selection_changed()
         self.scan.set()
 
-    def _choose_workspace(self):
-        folder = filedialog.askdirectory(parent=self.window, title=self._tr("Выбери папку базы знаний"))
-        if not folder:
-            return False
+    def _copy_knowledge_prompt(self):
         try:
-            root = create_workspace(Path(folder))
-            extra = list(dict.fromkeys([*self.settings["extra_roots"], str(root)]))
-            updates = {"extra_roots": extra, "project": str(root)}
-            save_settings(updates)
-        except (OSError, ValueError) as error:
-            messagebox.showerror(self._tr("Не удалось открыть базу"), self._detail(str(error)), parent=self.window)
+            suffix = {"ru": ".ru", "es": ".es"}.get(self.ui_language, "")
+            prompt = (BASE / "docs" / f"knowledge-pack-prompt{suffix}.md").read_text(encoding="utf-8")
+            self.window.clipboard_clear()
+            self.window.clipboard_append(prompt)
+        except (OSError, tk.TclError) as error:
+            messagebox.showerror(self._tr("Не удалось скопировать промпт"), str(error), parent=self.window)
             return False
-        self.settings.update(updates)
-        self.project = None
-        self._projects(discover_projects(extra=extra))
-        return self.project == root
+        self._set_copy(self.index_status, "Промпт скопирован. Вставь его в Codex или Claude Code, затем импортируй выжимку.")
+        self.copy_prompt_button.configure(style="Copilot.TButton")
+        self.import_button.configure(style="CopilotPrimary.TButton")
+        return True
 
     def _import_knowledge(self):
-        if self.project is None and not self._choose_workspace():
+        if self.import_button.instate(["disabled"]):
             return
-        paths = filedialog.askopenfilenames(
-            parent=self.window, title=self._tr("Импорт в базу «{name}»", name=self.project.name),
+        path = filedialog.askopenfilename(
+            parent=self.window, title=self._tr("Выбери готовую выжимку"),
             filetypes=[(self._tr("Документы Markdown и текст"), "*.md *.txt")])
-        if not paths:
+        if not path:
             return
-        target = self.project
-        existing = {path.name.casefold() for path in imported_documents(target)}
-        replacements = [Path(path).name for path in paths if Path(path).name.casefold() in existing]
-        if replacements and not messagebox.askyesno(
-                self._tr("Обновить документы"),
-                self._tr("Заменить документы в базе «{name}»?", name=target.name) + "\n\n" + "\n".join(replacements),
-                parent=self.window):
+        destination = choose_import_destination(self, Path(path))
+        if destination is None:
             return
+        target, name = destination
         self.import_button.state(["disabled"])
-        self.import_target = target
-        self._set_copy(self.index_status, "Загружаю документы…")
+        self.copy_prompt_button.state(["disabled"])
+        self.import_target = self.project
+        self._set_copy(self.index_status, "Импортирую выжимку…")
 
         def work():
             try:
-                imported = import_documents(target, map(Path, paths))
-                self.ui.put(("import_done", (target, len(imported), "")))
+                root = import_summary(RUNTIME, path, target=target, name=name)
+                self.ui.put(("import_done", (root, "")))
             except (OSError, ValueError) as error:
-                self.ui.put(("import_done", (target, 0, str(error))))
+                self.ui.put(("import_done", (None, str(error))))
 
         threading.Thread(target=work, daemon=True).start()
 
     def _index_loop(self):
         while not self.closed.is_set():
+            self.scan.clear()
+            index = self.index
+            generation = self.index_generation
+            scope = self.project
             extra = tuple(self.settings["extra_roots"])
-            projects = discover_projects(extra=extra)
-            self.ui.put(("projects", (extra, projects)))
-            for p in sorted(projects, key=lambda item: item.root != self.project):
+            projects = self._known_projects()
+            self.ui.put(("projects", (generation, extra, projects)))
+            for p in sorted(projects, key=lambda item: item.root not in scope_roots(scope)):
                 if self.closed.is_set():
                     return
+                if index is not self.index:
+                    break
                 try:
-                    count, stamp = self.index.refresh(p.root)
-                    self.ui.put(("index", (p.root, count, stamp)))
+                    count, stamp = index.refresh(p.root)
+                    self.ui.put(("index", (generation, index, p.root, count, stamp)))
                 except Exception as error:
-                    self.ui.put(("index_error", (p.root, str(error))))
+                    self.ui.put(("index_error", (generation, index, p.root, str(error))))
+            if isinstance(scope, tuple) and index is self.index:
+                try:
+                    count, stamp = index.status(scope)
+                    self.ui.put(("index", (generation, index, scope, count, stamp)))
+                except Exception as error:
+                    self.ui.put(("index_error", (generation, index, scope, str(error))))
             self.scan.wait(12)
-            self.scan.clear()
 
-    def _warm_llm(self):
+    def _warm_llm(self, brain, old_brain=None):
         try:
-            self.llm.warm()
-            self.ui.put(("llm", ""))
+            if old_brain is not None:
+                old_brain.close()
+            if self.closed.is_set() or brain is not self.llm:
+                return
+            brain.warm()
+            self.ui.put(("llm", (brain, "")))
         except Exception as error:
             LOG.warning("answer_model_unavailable %s", error)
-            self.ui.put(("llm", " · модель ответов недоступна"))
+            self.ui.put(("llm", (brain, " · модель ответов недоступна")))
 
-    def _boot_asr(self):
+    def _speech_factory(self, settings, reset):
+        return lambda: create_asr(
+            RUNTIME, settings["stt_engine"],
+            lambda msg: self.ui.put(("status", (reset, "{error}", {"error": msg}))),
+            url=settings["stt_url"], model=settings["stt_model"],
+            whisper_model=settings["whisper_model"], whisper_device=settings["whisper_device"],
+            qwen_model=settings["qwen_model"], qwen_device=settings["qwen_device"],
+        )
+
+    def _warm_asr(self, reset):
         try:
-            self.speech_session = speech = SpeechSession(
-                lambda: create_asr(
-                    RUNTIME, self.settings["stt_engine"],
-                    lambda msg: self.ui.put(("status", ("{error}", {"error": msg}))),
-                    url=self.settings["stt_url"], model=self.settings["stt_model"],
-                    whisper_model=self.settings["whisper_model"], whisper_device=self.settings["whisper_device"],
-                    qwen_model=self.settings["qwen_model"], qwen_device=self.settings["qwen_device"],
-                ),
-                self.live.is_set,
-            )
-            speech.warm()
-            if loaded := speech.loaded():
-                LOG.info("asr_ready model=%s device=%s", *loaded)
-            if self.closed.is_set():
+            if reset.is_set() or self.closed.is_set():
                 return
-            self.pipeline = Pipeline(speech, Advisor(self.index, self.llm, requested=True),
-                                     lambda *event: self.ui.put(("turn", event)), manual=True)
-            self._capture()
+            self.speech_session.warm()
+            if loaded := self.speech_session.loaded():
+                LOG.info("asr_ready model=%s device=%s", *loaded)
         except Exception as error:
-            self.ui.put(("status", ("Распознавание не запустилось: {error}", {"error": str(error)})))
+            self.ui.put(("status", (reset, "Распознавание не запустилось: {error}", {"error": str(error)})))
 
     def unload_speech(self):
         speech = self.speech_session
@@ -545,19 +647,24 @@ class Overlay:
         while not self.closed.is_set():
             if not self.live.wait(.35) or self.closed.is_set():
                 continue
-            stop = _CaptureStop(self.closed, self.live)
+            with self.capture_lock:
+                reset = self.capture_reset
+                settings = self.settings
+            stop = _CaptureStop(self.closed, self.live, reset)
             try:
-                source = loopback(stop, lambda name: self.ui.put(("device", name)))
-                for kind, pcm in detect(source, stop, self.settings["pause_ms"],
-                                        max_wait_ms=15000, replay_turn=False):
-                    if stop.is_set():
-                        break
-                    self.pipeline.accept_audio(kind, pcm, self.project, self.settings["glossary"])
+                source = loopback(stop, lambda name: self.ui.put(("device", (reset, name))))
+                prefetch = settings["stt_engine"] == "qwen" and settings["qwen_device"] == "cuda"
+                for kind, pcm in detect(source, stop, settings["pause_ms"],
+                                        max_wait_ms=15000, replay_turn=False, prefetch=prefetch):
+                    with self.capture_lock:
+                        if stop.is_set():
+                            break
+                        self.pipeline.accept_audio(kind, pcm, self.project, self.settings["glossary"])
             except Exception as error:
                 if not stop.is_set():
-                    self.ui.put(("status", ("Звук недоступен · переподключение: {error}",
+                    self.ui.put(("status", (reset, "Звук недоступен · переподключение: {error}",
                                             {"error": str(error)})))
-                    self.closed.wait(.8)
+                    reset.wait(.8)
 
     def _close_sources(self):
         if self.source_window:
@@ -710,16 +817,17 @@ class Overlay:
         if not text:
             self._set_copy(self.answer_status, "Дождись реплики в расшифровке.")
         elif self.project is None:
-            self._set_copy(self.answer_status, "Выбери базу через «Папка…».")
+            self._set_copy(self.answer_status, "Импортируй выжимку, чтобы получать ответы.")
         elif self.import_target == self.project or (self.index is not None and self.indexed_count is None):
             self._set_copy(self.answer_status, "База ещё готовится. Попробуй после обновления.")
         elif self.indexed_count == 0:
-            self._set_copy(self.answer_status, "Загрузи документы через «Импорт…».")
+            self._set_copy(self.answer_status, "Импортируй выжимку, чтобы получать ответы.")
         elif self.index is not None and not self.llm_done:
             self._set_copy(self.answer_status, "Прогрев локальной модели подсказок…")
         elif self.pipeline and self.pipeline.ask(text, self.project):
             self.review_id = None
-            self._set_copy(self.answer_status, "Ищу ответ в базе проекта…")
+            self._set_copy(self.answer_status, "Ищу ответ во всех базах…" if isinstance(self.project, tuple)
+                           else "Ищу ответ в базе проекта…")
         else:
             self._set_copy(self.answer_status, "Подготовка локальных моделей…")
         return "break"
@@ -807,8 +915,7 @@ class Overlay:
         for i, source in enumerate(self.last_card.sources, 1):
             if not used or i in used:
                 location = self._tr("строка {line}", line=source.line)
-                path = (source.path.relative_to(self.project).as_posix()
-                        if self.project and source.path.is_relative_to(self.project) else source.path.name)
+                path = source_location(self.project, source.path)
                 text.insert("end", f"[{i}] {path} · {location}\n", "path")
                 text.insert("end", f"{source.text}\n\n")
         text.configure(state="disabled")
@@ -820,39 +927,49 @@ class Overlay:
             while True:
                 kind, data = self.ui.get_nowait()
                 if kind == "projects":
-                    extra, projects = data
-                    if extra == tuple(self.settings["extra_roots"]):
+                    generation, extra, projects = data
+                    if generation is self.index_generation and extra == tuple(self.settings["extra_roots"]):
                         self._projects(projects)
-                elif kind == "index" and data[0] == self.project and data[0] != self.import_target:
-                    self.indexed_count = data[1]
-                    stamp = time.strftime("%H:%M", time.localtime(data[2])) if data[2] else ""
-                    if data[1]:
-                        self._set_copy(self.index_status, "Готова · файлов {count}{stamp}",
-                                       count=data[1], stamp=f" · {stamp}" if stamp else "")
+                elif (kind == "index" and data[0] is self.index_generation and data[1] is self.index
+                      and data[2] == self.project != self.import_target):
+                    _, _, _, count, _ = data
+                    self.indexed_count = count
+                    if count:
+                        self._set_copy(self.index_status, "Готово · выдели вопрос в расшифровке и нажми «Дай ответ».")
                     else:
-                        self._set_copy(self.index_status, "В базе пока нет документов. Нажми «Импорт…».")
-                elif kind == "index_error" and data[0] == self.project and data[0] != self.import_target:
-                    self._set_copy(self.index_status, "Ошибка обновления: {error}", error=data[1])
+                        self._set_copy(self.index_status, "Импортируй выжимку, чтобы получать ответы.")
+                elif (kind == "index_error" and data[0] is self.index_generation and data[1] is self.index
+                      and data[2] == self.project != self.import_target):
+                    self._set_copy(self.index_status, "Ошибка обновления: {error}", error=data[3])
                 elif kind == "import_done":
-                    root, count, error = data
+                    root, error = data
                     self.import_target = None
                     self.import_button.state(["!disabled"])
+                    self.copy_prompt_button.state(["!disabled"])
                     self.scan.set()
                     if error:
+                        self._set_copy(self.index_status, "Импорт не завершён. Проверь файл и повтори.")
                         messagebox.showerror(self._tr("Импорт базы знаний"), self._detail(error), parent=self.window)
-                    elif root == self.project:
-                        self.indexed_count = None
-                        self._set_copy(self.index_status, "Загружено документов · {count}. Обновляю индекс…", count=count)
-                elif kind == "status" and self.live.is_set():
-                    source, values = data
+                    else:
+                        self.index_generation = object()
+                        try:
+                            save_settings({"project": str(root)})
+                        except OSError as error:
+                            messagebox.showerror(self._tr("Не удалось сохранить выбор"), str(error), parent=self.window)
+                        self.settings["project"] = str(root)
+                        self.project = None
+                        self._projects(self._known_projects())
+                elif kind == "status" and data[0] is self.capture_reset and self.live.is_set():
+                    _, source, values = data
                     self._set_copy(self.status, source, **values)
-                elif kind == "llm":
-                    self.llm_status = data
+                elif kind == "llm" and data[0] is self.llm:
+                    self.llm_status = data[1]
                     self.llm_done = True
-                elif kind == "device" and self.live.is_set():
-                    self.device_name = data
+                elif kind == "device" and data[0] is self.capture_reset and self.live.is_set():
+                    self.device_name = data[1]
                     self.status_dot.configure(fg=ACCENT)
-                    self._set_copy(self.status, "Слушаю · {device}{warning}", device=data, warning=self.llm_status)
+                    self._set_copy(self.status, "Слушаю · {device}{warning}",
+                                   device=self.device_name, warning=self.llm_status)
                 elif kind == "turn" and self.pipeline.current(data[0], data[1]):
                     self._turn(data[1], data[2])
         except queue.Empty:
@@ -915,11 +1032,11 @@ class Overlay:
 
 
 class _CaptureStop:
-    def __init__(self, closed, live):
-        self.closed, self.live = closed, live
+    def __init__(self, closed, live, reset):
+        self.closed, self.live, self.reset = closed, live, reset
 
     def is_set(self):
-        return self.closed.is_set() or not self.live.is_set()
+        return self.closed.is_set() or self.reset.is_set() or not self.live.is_set()
 
 
 def main():
@@ -1081,6 +1198,12 @@ def main():
             app._fold()
             window.update()
             assert window.state() == "zoomed" and app.card_frame.winfo_ismapped()
+        from .knowledge import Project
+        app.pipeline = None
+        first, second = BASE / "first-demo-base", BASE / "second-demo-base"
+        app._projects([Project("Все базы", first), Project("Все базы · 1", second)])
+        assert len(app.bases) == 2
+        assert set(app.projects["Все базы"]) == {first, second}
         app.close()
         print("Overlay resizes and maximizes, appends paragraphs and preserves selection and layout")
     else:

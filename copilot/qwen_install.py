@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 from .hardware import read_vram
 from .speech import DEFAULT_QWEN_MODEL, QWEN_ASR_BUNDLE, QWEN_ASR_MODELS, QWEN_CUDA_BUNDLES, QWEN_LARGE_MODEL
-from .whisper_install import _run_worker
+from .whisper_install import _install_packages, _run_worker
 
 
 QWEN_DOWNLOAD_BYTES = 878_702_423
@@ -255,15 +255,13 @@ def _install_cuda(runtime, variant, on_progress, cancelled):
     if not read_vram():
         raise RuntimeError("Для режима GPU нужен доступный драйвер NVIDIA.")
     try:
-        for package, pin, index in (
-            ("torch", _TORCH, "https://download.pytorch.org/whl/cu128"),
-            ("transformers", _TRANSFORMERS, "https://pypi.org/simple"),
+        for package, pin, index, stage in (
+            ("torch", _TORCH, "https://download.pytorch.org/whl/cu128", "qwen_cuda"),
+            ("transformers", _TRANSFORMERS, "https://pypi.org/simple", "qwen_transformers"),
         ):
             if _has_package(package, pin):
                 continue
-            on_progress("qwen_cuda", None, None)
-            result = _run_worker(["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
-                                  "--only-binary=:all:", "--index-url", index, f"{package}=={pin}"], cancelled)
+            result = _install_packages(index, [f"{package}=={pin}"], stage, on_progress, cancelled)
             _check_cancelled(cancelled)
             if result != 0 or not _has_package(package, pin):
                 raise RuntimeError(f"Could not install {package} for Qwen ASR.")

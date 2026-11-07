@@ -39,14 +39,17 @@ ASR_ENGINES = {
 
 class Endpointer:
     """Feed 20 ms of 16 kHz, mono signed PCM, with a speech flag."""
-    def __init__(self, pause_ms=420, max_wait_ms=5000, *, replay_turn=True):
+    def __init__(self, pause_ms=420, max_wait_ms=5000, *, replay_turn=True, prefetch=False):
         self.end_frames = max(5, pause_ms // FRAME_MS)
         self.max_frames = max(50, max_wait_ms // FRAME_MS)
+        self.prepare_frames = max(7, self.end_frames - 14) if prefetch and not replay_turn else self.end_frames
         self.replay_turn = replay_turn
         self.history = deque(maxlen=8)
         self.frames = None
         self.turn = None
         self.checkpointed = False
+        self.prepared = None
+        self.probed = False
         self.voiced = self.quiet = self.run = self.age = 0
 
     def feed(self, pcm, voice):
@@ -59,6 +62,8 @@ class Endpointer:
                 if self.replay_turn:
                     self.turn = deque(self.history, maxlen=20_000 // FRAME_MS)
                 self.checkpointed = False
+                self.prepared = None
+                self.probed = False
                 self.history.clear()
                 self.voiced, self.quiet = self.run, 0
                 self.age = self.run
@@ -71,9 +76,10 @@ class Endpointer:
         self.voiced += int(voice)
         self.quiet = 0 if voice else self.quiet + 1
         if self.quiet >= self.end_frames:
-            clip = b"".join(self.turn if self.replay_turn else self.frames)
+            clip = self.prepared or b"".join(self.turn if self.replay_turn else self.frames)
             enough = self.voiced >= (1 if self.checkpointed else 9)
             self.frames = self.turn = None
+            self.prepared = None
             self.run = 0
             return ("end", clip) if enough else ("empty", None)
         if voice and self.age >= self.max_frames:
@@ -85,7 +91,16 @@ class Endpointer:
                 self.voiced = 0
                 self.checkpointed = True
             self.age = 0
+            self.prepared = None
+            self.probed = False
             return "checkpoint", clip
+        if voice and self.prepared is not None:
+            self.prepared = None
+            return "resume", None
+        if self.quiet == self.prepare_frames and self.voiced >= 9 and not self.probed:
+            self.probed = True
+            self.prepared = b"".join(self.frames)
+            return "prepare", self.prepared
         return None
 
 
@@ -100,10 +115,10 @@ def pcm_frames(source, stop):
             del pending[:FRAME_BYTES]
 
 
-def detect(source, stop, pause_ms=420, max_wait_ms=5000, *, replay_turn=True):
+def detect(source, stop, pause_ms=420, max_wait_ms=5000, *, replay_turn=True, prefetch=False):
     import webrtcvad
     vad = webrtcvad.Vad(2)
-    end = Endpointer(pause_ms, max_wait_ms, replay_turn=replay_turn)
+    end = Endpointer(pause_ms, max_wait_ms, replay_turn=replay_turn, prefetch=prefetch)
     for frame in pcm_frames(source, stop):
         event = end.feed(frame, vad.is_speech(frame, RATE))
         if event:
@@ -435,21 +450,38 @@ class SpeechSession:
     def __init__(self, factory, listening):
         self.factory, self.listening = factory, listening
         self.model = None
+        self.loaded_factory = None
         self.lock = threading.Lock()
 
+    def reconfigure(self, factory):
+        # The decode worker owns the model. Switching the requested factory does not wait on it.
+        self.factory = factory
+
+    def _unload(self):
+        model, self.model = self.model, None
+        self.loaded_factory = None
+        if model is not None and hasattr(model, "unload"):
+            model.unload()
+
     def _load(self):
+        factory = self.factory
+        if self.loaded_factory is not factory:
+            self._unload()
         if self.model is None:
-            self.model = self.factory()
+            self.model = factory()
+            self.loaded_factory = factory
         return self.model
 
     def warm(self):
         with self.lock:
             if self.listening():
                 self._load()
+            elif self.loaded_factory is not self.factory:
+                self._unload()
 
     def loaded(self):
         model = self.model
-        return (model.name, model.device) if model is not None else None
+        return (model.name, model.device) if model is not None and self.loaded_factory is self.factory else None
 
     def __call__(self, pcm, glossary=""):
         with self.lock:
@@ -459,9 +491,7 @@ class SpeechSession:
 
     def unload(self):
         with self.lock:
-            model, self.model = self.model, None
-            if model is not None and hasattr(model, "unload"):
-                model.unload()
+            self._unload()
 
 
 def create_asr(runtime, engine="qwen", on_status=lambda msg: None, *, url="", model="", download=False,

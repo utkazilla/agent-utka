@@ -31,6 +31,8 @@ class History:
 
     @staticmethod
     def _project(root):
+        if isinstance(root, tuple):
+            return "*"
         return str(root.resolve()) if root else ""
 
     def add(self, root, text, card):

@@ -1,12 +1,14 @@
 """Import local knowledge documents without sending files to an AI service."""
 
 import json
+import hashlib
 import os
 import re
 import tempfile
 from pathlib import Path
 
 
+# Legacy automatic raw-code scans remain bounded; explicitly imported documents are complete.
 MAX_DOCUMENT_BYTES = 180_000
 PACK_FILENAME = "utka-cue-knowledge.md"
 PACK_FILENAMES = (PACK_FILENAME, "utka-knowledge.md", "call-copilot-knowledge.md")
@@ -17,21 +19,21 @@ _CONTEXT = re.compile(r"(?:\w+(?:\\w\*)?)(?:[ -]\w+(?:\\w\*)?)*")
 
 
 def _validate_glossary(data):
-    def words(values, limit):
-        return (isinstance(values, list) and len(values) <= limit
-                and all(isinstance(value, str) and 0 < len(value) <= 120
+    def words(values, limit=None):
+        return (isinstance(values, list) and (limit is None or len(values) <= limit)
+                and all(isinstance(value, str) and len(value) > 0
                         and value == value.strip() and "\n" not in value and "\r" not in value
                         for value in values))
 
-    if not isinstance(data, dict) or not words(data.get("terms"), 200):
+    if not isinstance(data, dict) or not words(data.get("terms")):
         raise ValueError("В словаре нужны terms с точными написаниями.")
     terms = set(data["terms"])
     hints = data.get("hotwords", data["terms"][:10])
     if not words(hints, 20) or not set(hints) <= terms:
         raise ValueError("hotwords должен содержать до 20 терминов из terms.")
     rules = data.get("aliases", [])
-    if not isinstance(rules, list) or len(rules) > 200:
-        raise ValueError("aliases должен содержать до 200 правил произношения.")
+    if not isinstance(rules, list):
+        raise ValueError("aliases должен содержать список правил произношения.")
     for rule in rules:
         if (not isinstance(rule, dict) or not isinstance(rule.get("term"), str)
                 or rule["term"] not in terms or not words(rule.get("heard"), 16)
@@ -103,6 +105,13 @@ def create_workspace(folder):
     return root
 
 
+def is_workspace(root):
+    try:
+        return _import_folder(root).is_dir()
+    except (OSError, ValueError):
+        return False
+
+
 def imported_documents(root):
     try:
         folder = _import_folder(Path(root))
@@ -113,9 +122,107 @@ def imported_documents(root):
     except (OSError, ValueError):
         return ()
 
+def _base_metadata(root):
+    path = Path(root) / ".copilot-knowledge" / "base.json"
+    if any(item.is_symlink() or item.is_junction() for item in (path, path.parent)):
+        raise ValueError("Описание базы не может быть ссылкой.")
+    if not path.exists():
+        return {}
+    try:
+        if path.stat().st_size > 200_000:
+            raise ValueError()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        imports = data.get("imports", {})
+        if (not isinstance(data.get("name"), str) or not isinstance(imports, dict)
+                or any(not isinstance(k, str) or not isinstance(v, str)
+                       or Path(v).name != v or v.startswith(".") or re.search(r'[<>:"/\\|?*\x00-\x1f]', v)
+                       for k, v in imports.items())
+                or len({v.casefold() for v in imports.values()}) != len(imports)):
+            raise ValueError()
+        return data
+    except (ValueError, AttributeError) as error:
+        raise ValueError("Не удалось прочитать описание базы. Импорт отменён.") from error
+
+
+def import_summary(runtime, source, *, target=None, name=None):
+    source = Path(source).expanduser().resolve()
+    prepared = _prepare_documents([source])
+    identity = hashlib.sha256(os.path.normcase(str(source)).encode("utf-8")).hexdigest()[:20]
+    library = Path(runtime) / "knowledge"
+    if name is not None:
+        name = " ".join(name.split())
+        if not name or len(name) > 100:
+            raise ValueError("Название базы должно содержать от 1 до 100 символов.")
+    if target is not None:
+        root = Path(target)
+        if not is_workspace(root):
+            raise ValueError("Выбери существующую базу или создай новую.")
+    else:
+        key = hashlib.sha256(("base:" + name.casefold()).encode("utf-8")).hexdigest()[:20] if name else identity
+        root = library / key
+    if any(path.is_symlink() or path.is_junction() for path in (library, root)):
+        raise ValueError("Папка базы знаний не может быть ссылкой.")
+    metadata = _base_metadata(root)
+    copies = dict(metadata.get("imports", {}))
+    documents = imported_documents(root)
+    if (not metadata and len(documents) == 1 and re.fullmatch(r"[0-9a-f]{20}", root.name)
+            and root.parent.resolve() == library.resolve()):
+        copies[root.name] = documents[0].name
+    existing = {p.name.casefold() for p in documents} | {v.casefold() for v in copies.values()}
+    filename = copies.get(identity)
+    if filename is None:
+        filename = source.name
+        number = 2
+        while filename.casefold() in existing:
+            filename = f"{source.stem} ({number}){source.suffix}"
+            number += 1
+        copies[identity] = filename
+    title = metadata.get("name") or name or (summary_title(root) if imported_documents(root) else document_title(source))
+    folder = _import_folder(create_workspace(root))
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder.parent,
+                                         prefix=".base-", delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump({"name": title, "imports": copies}, stream, ensure_ascii=False)
+        os.replace(temporary, folder.parent / "base.json")
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    _publish_documents(root, {filename: prepared[source.name]})
+    return root.resolve()
+
+
+def summary_title(root):
+    try:
+        if title := _base_metadata(root).get("name"):
+            return title
+    except (OSError, ValueError):
+        pass
+    documents = imported_documents(root)
+    return document_title(documents[0]) if documents else Path(root).name
+
+
+def document_title(source):
+    source = Path(source)
+    try:
+        with source.open(encoding="utf-8-sig") as stream:
+            first = stream.read(4096).lstrip().splitlines()[0]
+        if first.startswith("# "):
+            title = " ".join(first[2:].strip().strip("#").strip(" *`").split())
+            if title:
+                return title[:100]
+    except (OSError, UnicodeError, IndexError):
+        pass
+    return source.stem.replace("_", " ").replace("-", " ")
+
 
 def import_documents(workspace, files):
     """Validate the batch, then publish each file by atomic replacement."""
+    return _publish_documents(workspace, _prepare_documents(files))
+
+
+def _prepare_documents(files):
     from .knowledge import PRIVATE_BODY, PRIVATE_PATH
 
     prepared = {}
@@ -130,9 +237,9 @@ def import_documents(workspace, files):
         if not file.is_file():
             raise ValueError(f"{name}: выбери существующий файл.")
         with file.open("rb") as stream:
-            content = stream.read(MAX_DOCUMENT_BYTES + 1)
-        if not 0 < len(content) <= MAX_DOCUMENT_BYTES:
-            raise ValueError(f"{name}: размер документа должен быть от 1 до {MAX_DOCUMENT_BYTES} байт.")
+            content = stream.read()
+        if not content:
+            raise ValueError(f"{name}: документ не должен быть пустым.")
         text = content.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
         if "\x00" in text or PRIVATE_BODY.search(text):
             raise ValueError(f"{name}: обнаружены ключи, пароли или двоичные данные.")
@@ -144,9 +251,12 @@ def import_documents(workspace, files):
             raise ValueError(f"{name}: {error}") from error
         prepared[name] = text
         names.add(name.casefold())
+    return prepared
+
+
+def _publish_documents(workspace, prepared):
     if not prepared:
         return ()
-
     folder = _import_folder(create_workspace(workspace))
     existing = {path.name.casefold(): path for path in folder.iterdir()}
     targets = {existing.get(name.casefold(), folder / name): text for name, text in prepared.items()}

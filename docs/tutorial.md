@@ -11,7 +11,7 @@ The default install folder is `%LOCALAPPDATA%\Programs\Agent Utka`. Models and i
 ## Run from source
 
 1. Extract the source ZIP or clone the repository into a writable folder, such as `C:\Apps\Agent Utka`. Use an x64 Windows PC with a playback device.
-2. Install 64-bit Python 3.12 with Tk support and either the Python launcher or `python.exe` on PATH. Install Git if you want to index Git worktrees. If a native dependency reports a missing DLL, install the Microsoft Visual C++ Redistributable for x64. [Python for Windows](https://www.python.org/downloads/windows/) · [Git for Windows](https://git-scm.com/install/windows) · [Microsoft runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
+2. Install 64-bit Python 3.12 with Tk support and either the Python launcher or `python.exe` on PATH. If a native dependency reports a missing DLL, install the Microsoft Visual C++ Redistributable for x64. [Python for Windows](https://www.python.org/downloads/windows/) · [Microsoft runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
 3. Open PowerShell in the application folder and run setup. The first run needs internet access and several gigabytes of disk space. The defaults download Qwen3-ASR and the `qwen3.5:4b` model for portable Ollama. Add `-SkipCuda` to skip optional NVIDIA speech packages and weights. Ollama manages its own CPU/GPU placement.
 
    ~~~powershell
@@ -30,8 +30,8 @@ To configure your own services before the first setup, copy `settings.example.js
 
 ## Create a knowledge base and try an answer
 
-1. Create an empty directory for the demo, such as `C:\Agent Utka Bases\Orbit`.
-2. Under **Knowledge base**, click **Folder…** and select that directory. Click **Import…** and choose the fictional [Orbit Sync example](examples/orbit-knowledge.md). Wait for **Ready** and a nonzero file count.
+1. Save the fictional [Orbit Sync example](examples/orbit-knowledge.md) on your PC.
+2. Click **Import summary**, select that file, choose **New base…**, and click **Import**. Wait for **Ready**. Agent Utka creates and selects the base.
 3. Play the question **“How long does the Orbit sync worker wait before retrying a temporary failure?”** through the default Windows output. You can play a recording or generate the question locally using Windows PowerShell. Run the following while Agent Utka is listening.
 
    ~~~powershell
@@ -55,26 +55,28 @@ To configure your own services before the first setup, copy `settings.example.js
 
 ## Connect your own project
 
-Choose the root folder of a code or documentation project with **Folder…**. Agent Utka indexes supported text files, such as code, Markdown, and text. For a Git repository, it considers tracked files and unignored working files. A writable folder is needed when you import. Use a dedicated folder if you want the search to cover only reviewed documents.
+Click **Copy prompt** on the main screen and paste it into Codex or Claude Code in your project. Review the summary it creates, then click **Import summary** and select the file.
 
-Use **Import…** to copy one or more UTF‑8 `.md` or `.txt` files into `.copilot-knowledge/imports` under the selected folder. Each file can be up to 180,000 bytes. Reimport a file with the same name to replace the earlier copy after confirming the replacement. Export or convert PDFs, Word documents, and wiki pages to Markdown or text first.
+In **Add to knowledge base**, choose an existing base or **New base…**. For a new base, the document's first heading supplies a suggested name that you can edit. Click **Import** and wait for **Ready**. Several summaries can belong to one base. Files must be UTF‑8 `.md` or `.txt`. Explicit imports have no application-imposed file-size cap. Export or convert PDFs, Word documents, and wiki pages to Markdown or text first.
 
-Agent Utka searches the selected project's index. The default SQLite file is `.runtime/knowledge.sqlite`. **Settings → SQLite index folder** sets a different directory for the index file. Imported files remain in the selected project folder. The running app checks for file changes periodically.
+The selector on the main screen controls where answers are searched: one named base or **All bases**. **Browse knowledge** uses that same selection. Combined results and citations include the originating base.
+
+Import an updated version from the same original file location into the same base to replace that document. Different source files remain separate even when their filenames match. Imported copies are stored under `.runtime/knowledge`, and the search index is `.runtime/agent-utka-imports.sqlite`. Storage is managed automatically. Advanced users can change the index location in Settings.
 
 ## Prepare and update a pack with Codex or Claude Code
 
-1. Open the project in Codex or Claude Code. In Agent Utka, open **Settings** and click **Copy prompt**. Paste it into the coding agent's project chat. The prompt asks the agent to inspect the sources it can access and save `utka-cue-knowledge.md` in the project root.
+1. Open the project in Codex or Claude Code. In Agent Utka, click **Copy prompt** on the main screen. Paste it into the coding agent's project chat. The prompt asks the agent to reconstruct all accessible project conversation history, code structure, MR/PR changes and reviews, and linked documentation, then save the detailed knowledge file as `utka-cue-knowledge.md` in the project root. It requires a source register, coverage map, historical/current labels and explicit gaps for unavailable evidence. There is no output-length or full-glossary entry quota.
 2. Review the generated file. Keep current behavior, constraints, and source paths close to each answer. A `utka-cue-asr` fenced JSON block holds exact terms and pronunciation aliases. Existing knowledge documents can use the same format as the [example pack](examples/orbit-knowledge.md).
-3. If Agent Utka points at that working folder, it discovers the pack in the root. Keep the file visible to Git when the folder is a repository. If the assistant uses a separate knowledge folder, import the pack there.
-4. After a project change, ask the agent to run the prompt again and overwrite the same file. Reimport it if you maintain a separate copy. Citations refer to the files the app indexed, so a citation from an imported summary points to that summary. Keep original source links inside the summary.
+3. In Agent Utka, click **Import summary**, select the reviewed pack, and choose its destination base. Click **Import** and wait for **Ready**.
+4. After a project change, ask the agent to refresh the pack, review it, then import it from the same file location into the same base. Citations point to lines in the imported pack. Keep original source links inside the pack.
 
-Existing packs named `utka-knowledge.md` or `call-copilot-knowledge.md` and glossary blocks marked `utka-asr` or `call-copilot-asr` still work. Agent Utka indexes the text of all eligible packs in the project root. When `utka-cue-knowledge.md` is eligible, its glossary takes priority.
+Existing packs named `utka-knowledge.md` or `call-copilot-knowledge.md` and glossary blocks marked `utka-asr` or `call-copilot-asr` also work when imported.
 
 The prompt is available in [English](knowledge-pack-prompt.md), [Russian](knowledge-pack-prompt.ru.md), and [Spanish](knowledge-pack-prompt.es.md).
 
 ## Choose speech, answer, and search modules
 
-Open **Settings** to choose your providers. The model pickers save your selection when it succeeds. For settings you edit directly, click **Save**. Restart Agent Utka to apply these changes. The flag menu switches the interface language separately.
+Open **Settings** to choose your providers. The model pickers save and apply your selection, then close. For settings you edit directly, click **Save** to apply them and close Settings. The flag menu switches the interface language separately.
 
 | Component | Built-in option | Connect your own |
 | --- | --- | --- |
@@ -85,7 +87,7 @@ Open **Settings** to choose your providers. The model pickers save your selectio
 ### Speech recognition
 
 1. Open **Settings → Speech recognition → Choose model…**. If a local speech server is selected, switch the source to **Built-in models**. Search the **Catalog** by model name or language label, or open **Installed** to see models ready to select. The catalog includes both Qwen3-ASR sizes and all 17 distinct Faster Whisper 1.2.1 variants, including Turbo and Distil. Choose a multilingual model for Russian, Spanish, or conversations in several languages. [Qwen3-ASR model list](https://github.com/QwenLM/Qwen3-ASR) · [Faster Whisper model list](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py)
-2. Select a model and click **Download and select** or **Select** if it is installed. Agent Utka downloads the weights and installs the Faster Whisper dependency if needed. It saves the selected speech engine and model when installation finishes. Canceling a download keeps your previous selection. Restart Agent Utka to use the chosen model. The picker shows download size and, when available, free VRAM on your NVIDIA GPU.
+2. Select a model and click **Download and select** or **Select** if it is installed. Agent Utka downloads the weights and installs any required dependencies. It switches the speech engine and model in the current session. Canceling a download keeps your previous selection. The picker shows download size and, when available, free VRAM on your NVIDIA GPU.
 3. For Faster Whisper, choose **NVIDIA GPU (CUDA)** to download cuBLAS and cuDNN on demand and verify GPU inference before saving. The first download adds about 1.3 GB of libraries and requires an NVIDIA driver. **CPU** explicitly uses the processor. **Auto** uses available libraries and can fall back to CPU. For Qwen, select the **BF16 · NVIDIA GPU** row for either 0.6B or 1.7B. The picker downloads the official BF16 weights and installs PyTorch CUDA and Transformers if needed. GPU weights are about 1.6 GB or 4.1 GB, plus the runtime on first setup. The **INT8 · CPU** rows use the sherpa-onnx builds. [Qwen BF16 model](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) · [Qwen ONNX builds](https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/pretrained.html)
 4. **Unload model** under Speech recognition pauses listening and releases the loaded built-in model. **Listen** resumes capture and the next speech segment reloads the model. The status shows which model is in memory and on which device.
 
@@ -95,7 +97,7 @@ For a separate service, choose **Local OpenAI-compatible STT**, enter its numeri
 
 1. Choose **Ollama · built-in** to use the portable server from setup. If Ollama already runs on this PC, select **Ollama · existing server** and enter its local base address, normally `http://127.0.0.1:11434`. Disable Ollama's cloud features and restart the server before connecting it. Agent Utka checks this setting on the installed server. [Disable Ollama cloud features](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features)
 2. Under **Answers**, click **Choose model…**. Open **Catalog** and find a model family by name. Select a variant and check its file size before starting the download. A suffix such as `4b` means four billion parameters. The size shown in GB is the published model file size. [Ollama model library](https://ollama.com/library)
-3. Click **Download and select**. Agent Utka shows progress while the selected Ollama server downloads and installs the model, then saves the model and answer server together. For a model already on that server, open **Installed** and click **Select**. Restart Agent Utka to use the selected model for answers. If you also edited the external speech server or search settings, click **Save** in **Settings** before restarting.
+3. Click **Download and select**. Agent Utka shows progress while the selected Ollama server downloads and installs the model, then applies the model and answer server together. For a model already on that server, open **Installed** and click **Select**. If you also edited the speech server or search settings, click **Save** in **Settings** to apply those changes.
 4. Click **Refresh VRAM** to check free and total video memory on supported NVIDIA GPUs and the VRAM reported for models loaded by Ollama. Actual GPU use depends on quantization, context length, the speech engine, and other running software. [Ollama running model API](https://docs.ollama.com/api/ps) · [NVIDIA memory reporting](https://docs.nvidia.com/deploy/nvidia-smi/index.html#fb-memory-usage)
 5. Use **Unload model** in Answers or select a loaded model in the Ollama picker and unload it there. The session model is shown separately from the saved choice. Ollama can reload it for the next request. Other local servers manage memory through their own controls.
 
@@ -129,20 +131,20 @@ To try the adapter before connecting your own search service, first import the O
 & '.\.venv\Scripts\python.exe' '.\docs\examples\local-search-demo.py'
 ~~~
 
-Choose **Local search API**, keep the URL above, save, and restart Agent Utka. Ask the Orbit retry question again. The demo returns the indexed citation for this specific example. Replace the fixed response with ranked path and line references from your search engine when building your own adapter.
+Choose **Local search API**, keep the URL above, and save. Ask the Orbit retry question again. The demo returns the indexed citation for this specific example. Replace the fixed response with ranked path and line references from your search engine when building your own adapter.
 
 ## Local data and common fixes
 
 The app listens to the default Windows playback endpoint, including any application playing through it. It keeps the full transcript in memory for the current window and stores recent requested answers, excerpts, and citations in `.runtime/history.sqlite`. The SQLite knowledge index contains text from source documents. Audio is processed in memory. Set up only local adapters you trust because they receive speech, questions, or source excerpts appropriate to their role. Browsing the Ollama catalog contacts Ollama's public library. Downloads go through the selected Ollama server.
 
-The app discovers local project folders from Codex when available and refreshes their indexes along with folders you add. Questions and custom search requests use the project selected in the app.
+The app lists the summaries you import. Questions and custom search requests use the currently selected base.
 
 | What you see | What to check |
 | --- | --- |
 | A YouTube video plays with no transcript | Resume listening. In Windows **Settings → System → Sound → Volume mixer**, verify that the browser uses the default playback device. Unmute the tab and device. Play several seconds of clear speech and allow a short pause. |
 | Your own voice does not appear | The app captures playback. If you speak into a microphone and your own audio is not played back by Windows, it is outside the capture. |
 | The Windows device changed | Let the app reconnect. Check the default output again after reconnecting Bluetooth headphones or moving a call to another device. |
-| An imported file does not appear | Confirm the selected folder, check **Ready**, and verify UTF‑8, supported extension, and file size. |
+| An imported file does not appear | Check the selected base and **Ready** status, and verify UTF‑8, supported extension, and file size. |
 | The answer is missing or cites a summary | Import the original supporting text, or include a direct answer and a source link in the knowledge pack. Ask using the wording or exact term found in the source. |
 | A local model does not appear or respond | Check that the intended server is running at the configured address and the model is installed on that server. For an OpenAI-compatible answer server, verify JSON Schema support. |
 | The Ollama catalog does not load | Check your internet connection and retry. **Installed** still lets you choose models already on the selected Ollama server. |

@@ -5,16 +5,78 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
+from unittest.mock import Mock, patch
 
 from copilot.asr_glossary import project_asr_glossary
+from copilot.app import Overlay
 from copilot.brains import LocalChatCompletions, create_brain, local_api_url
-from copilot.configuration import index_path, load_settings, save_settings
-from copilot.knowledge import Knowledge
+from copilot.configuration import DEFAULTS, index_path, load_settings, save_settings
+from copilot.knowledge import Knowledge, discover_projects
 from copilot.knowledge_pack import create_workspace, import_documents
 from copilot.suggest import Advisor
 
 
 class ConfigurationTest(unittest.TestCase):
+    def test_app_knowledge_uses_imports_without_reading_codex_projects_or_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            raw = base / "source"
+            raw.mkdir()
+            (raw / "README.md").write_text("Private original source", encoding="utf-8")
+            registry = base / "codex.json"
+            registry.write_text(json.dumps({"local-projects": {
+                "example": {"rootPaths": [str(raw)]},
+            }}), encoding="utf-8")
+            root = create_workspace(base / "selected")
+            (root / ".git").mkdir()
+            (root / "README.md").write_text("Unimported glossary and text", encoding="utf-8")
+            doc = base / "export.md"
+            doc.write_text("The imported test spacecraft is named Atlas.", encoding="utf-8")
+            imported, = import_documents(root, [doc])
+            with patch("copilot.knowledge._repo_files", side_effect=AssertionError("Git must stay untouched")):
+                workspaces = discover_projects(registry, extra=[str(root), str(raw)], documents_only=True)
+                self.assertEqual([project.root for project in workspaces], [root])
+                index = Knowledge(base / "documents.sqlite", documents_only=True)
+                self.assertEqual(index.refresh(root)[0], 1)
+                self.assertEqual(index.search(root, "test spacecraft")[0].path, imported)
+                self.assertEqual(index.search(root, "unimported glossary"), [])
+
+    def test_switch_settings_applies_to_current_pipeline_and_preserves_pause(self):
+        overlay = Overlay.__new__(Overlay)
+        overlay.settings = dict(DEFAULTS)
+        overlay.llm, overlay.index, overlay.pipeline, overlay.speech_session = (Mock() for _ in range(4))
+        overlay.live, overlay.scan = threading.Event(), threading.Event()
+        overlay.capture_lock, overlay.capture_reset = threading.Lock(), threading.Event()
+        overlay.closed, overlay.ui = threading.Event(), Mock()
+        overlay.indexed_count = 2
+        old_brain, old_capture = overlay.llm, overlay.capture_reset
+        new_brain, new_index = Mock(), Mock()
+        with (patch("copilot.app.save_settings") as save, patch("copilot.app.create_brain", return_value=new_brain),
+              patch("copilot.app.Knowledge", return_value=new_index), patch("copilot.app.threading.Thread") as thread,
+              patch.object(overlay, "_set_copy", create=True)):
+            overlay.index_status = Mock()
+            overlay.status = Mock()
+            overlay.answer_status = Mock()
+            changes = {"ollama": "new:4b", "qwen_model": "1.7b-int8", "rag_directory": "new"}
+            overlay.apply_settings(changes)
+            save.assert_called_once_with(changes)
+            self.assertEqual(overlay.settings["qwen_model"], "1.7b-int8")
+            self.assertIs(overlay.llm, new_brain)
+            self.assertIs(overlay.index, new_index)
+            self.assertIsNone(overlay.indexed_count)
+            self.assertTrue(overlay.scan.is_set())
+            self.assertTrue(old_capture.is_set())
+            self.assertFalse(overlay.live.is_set())
+            overlay.speech_session.reconfigure.assert_called_once()
+            overlay.pipeline.cancel_speech.assert_called_once()
+            advisor = overlay.pipeline.set_advisor.call_args.args[0]
+            self.assertIs(advisor.index, new_index)
+            self.assertIs(advisor.ollama, new_brain)
+            for call in thread.call_args_list:
+                call.kwargs["target"](*call.kwargs.get("args", ()))
+            old_brain.close.assert_called_once()
+            new_brain.warm.assert_called_once()
+
     def test_interface_language_persists_independently_of_speech_language(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "settings.json"
@@ -54,12 +116,9 @@ class ConfigurationTest(unittest.TestCase):
             def do_POST(self):
                 data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 requests.append((self.path, data))
-                if "evidence" in data["response_format"]["json_schema"]["schema"]["properties"]:
-                    sources = json.loads(data["messages"][-1]["content"])["sources"]
-                    line = next(int(k) for k, v in sources[0]["lines"].items() if "47" in v)
-                    result = {"evidence": [{"source": 1, "first": line, "last": line}]}
-                else:
-                    result = {"scope_matches": True, "keep": [1]}
+                sources = json.loads(data["messages"][-1]["content"])["sources"]
+                quote = next(row["id"] for row in sources if "47" in row["quote"])
+                result = {"quotes": [quote]}
                 self.reply({"choices": [{"message": {"content": json.dumps(result)}}]})
 
             def log_message(self, *_args):
@@ -100,7 +159,7 @@ class ConfigurationTest(unittest.TestCase):
             self.assertIn("47 minutes", card.options[0][0])
             self.assertEqual(card.sources[0].path, imported)
             self.assertEqual(requests[0], "/v1/models")
-            self.assertEqual([path for path, _ in requests[1:]], ["/v1/chat/completions"] * 2)
+            self.assertEqual([path for path, _ in requests[1:]], ["/v1/chat/completions"])
             self.assertTrue(all(request["model"] == "test-model" for _, request in requests[1:]))
 
     def test_local_server_disallows_external_addresses_and_redirects(self):

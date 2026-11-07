@@ -65,8 +65,10 @@ def save_settings(updates, path=LOCAL_SETTINGS):
             temporary.unlink(missing_ok=True)
 
 
-def index_path(settings):
+def index_path(settings, *, documents_only=False):
     directory = settings.get("rag_directory")
     folder = Path(directory).expanduser().resolve() if directory else RUNTIME
+    if documents_only:
+        return folder / "agent-utka-imports.sqlite"
     name = "knowledge.sqlite" if folder == RUNTIME else "call-copilot-knowledge.sqlite"
     return folder / name

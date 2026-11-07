@@ -65,6 +65,56 @@ class KnowledgeTest(unittest.TestCase):
 
 
 class SpeechTest(unittest.TestCase):
+    def test_early_decode_is_committed_only_after_the_pause(self):
+        from copilot.pipeline import Pipeline
+        from copilot.speech import Endpointer
+
+        gate = Endpointer(pause_ms=420, replay_turn=False, prefetch=True)
+        called = queue.Queue()
+        events = queue.Queue()
+        engine = Pipeline(lambda pcm, _: (called.put(pcm) or "готово"), None,
+                          lambda *args: events.put(args), manual=True)
+        voice, quiet = b"v" * 640, bytes(640)
+        try:
+            def feed(frame, active):
+                event = gate.feed(frame, active)
+                if event:
+                    engine.accept_audio(*event, None)
+                return event
+
+            for _ in range(15):
+                feed(voice, True)
+            for _ in range(7):
+                early = feed(quiet, False)
+            self.assertEqual(early[0], "prepare")
+            self.assertEqual(called.get(timeout=1), early[1])
+            self.assertEqual(events.get(timeout=1)[1], "hearing")
+            self.assertTrue(events.empty())
+            for _ in range(14):
+                final = feed(quiet, False)
+            self.assertIs(final[1], early[1])
+            self.assertEqual(events.get(timeout=1)[1], "asr")
+            self.assertEqual(events.get(timeout=1)[1:], ("transcript", "готово"))
+            self.assertTrue(called.empty())
+        finally:
+            engine.close()
+
+    def test_resumed_voice_invalidates_early_audio(self):
+        from copilot.speech import Endpointer
+
+        gate = Endpointer(pause_ms=420, replay_turn=False, prefetch=True)
+        voice, quiet = b"a" * 640, bytes(640)
+        for _ in range(15):
+            gate.feed(voice, True)
+        for _ in range(7):
+            early = gate.feed(quiet, False)
+        self.assertEqual(gate.feed(b"b" * 640, True), ("resume", None))
+        for _ in range(21):
+            final = gate.feed(quiet, False)
+        self.assertEqual(final[0], "end")
+        self.assertNotEqual(final[1], early[1])
+        self.assertIn(b"b" * 640, final[1])
+
     def test_transcript_chunks_cover_long_speech_once(self):
         from copilot.speech import Endpointer
         gate = Endpointer(pause_ms=420, max_wait_ms=5000, replay_turn=False)
@@ -161,6 +211,32 @@ class TopicTest(unittest.TestCase):
                 self.assertEqual(prompts[-1], "Kafka")
             finally:
                 engine.close()
+
+    def test_switching_advisor_discards_an_inflight_answer(self):
+        import queue
+        import threading
+        from copilot.pipeline import Pipeline
+
+        started, release = threading.Event(), threading.Event()
+        events = queue.SimpleQueue()
+
+        def old_advisor(*_args):
+            started.set()
+            release.wait(3)
+            return "stale"
+
+        pipeline = Pipeline(None, old_advisor, lambda *event: events.put(event), manual=True)
+        try:
+            self.assertTrue(pipeline.ask("first", "."))
+            self.assertTrue(started.wait(3))
+            pipeline.set_advisor(lambda *_args: "current")
+            self.assertTrue(pipeline.ask("second", "."))
+            release.set()
+            _, event, (text, card, _) = events.get(timeout=3)
+            self.assertEqual((event, text, card), ("card", "second", "current"))
+        finally:
+            release.set()
+            pipeline.close()
 
     def test_manual_request_is_independent_of_queued_speech(self):
         from copilot.pipeline import Pipeline
@@ -295,12 +371,32 @@ class TopicTest(unittest.TestCase):
 
 
 class SuggestTest(unittest.TestCase):
+    def test_quote_includes_route_annotation_and_both_conditional_branches(self):
+        from copilot.knowledge import Source, _terms
+        from copilot.suggest import _quote_excerpt
+
+        root = Path.cwd()
+        route = Source(root / "CardsController.java", 20,
+                       '@RequestMapping("/cards")\npublic class CardsController {\n'
+                       '    public void createCard() {}')
+        quote = _quote_excerpt(route, set(_terms("Какой базовый путь контроллера создания карточки?", query=True)),
+                               set(), route=True)
+        self.assertIn('@RequestMapping("/cards")', quote.text)
+        rule = Source(root / "Search.md", 30, "Комментарий для резидента\n"
+                      "Система определяет тип поиска резидента по введённому значению.\n"
+                      "Если букв нет, искать по идентификатору.\n"
+                      "Если есть буква, искать по названию.")
+        quote = _quote_excerpt(rule, set(_terms("Как выбирается тип поиска резидента?", query=True)),
+                               set(), branches=True)
+        self.assertIn("Если букв нет", quote.text)
+        self.assertIn("Если есть буква", quote.text)
+
     def test_manual_answer_uses_only_verified_source_text(self):
         from copilot.knowledge import Source
         from copilot.suggest import Advisor
 
         root = Path.cwd()
-        source = Source(root / "contract.md", 30, "Состояния заявки\nПри отмене вернётся CANCELLED.\nЧерновик сохраняется.")
+        source = Source(root / "contract.md", 31, "При отмене вернётся CANCELLED.")
 
         class Index:
             def search(self, root, query, limit):
@@ -321,34 +417,30 @@ class SuggestTest(unittest.TestCase):
             model = Model(responses)
             return Advisor(Index(), model, requested=True)(question, [], root), model
 
-        span = {"source": 1, "first": 31, "last": 31}
-        candidate = {"evidence": [span], "short": "Заявка удаляется без следа."}
-        card, model = ask(candidate, {"scope_matches": True, "keep": [1]})
+        candidate = {"quotes": [1], "short": "Заявка удаляется без следа."}
+        card, model = ask(candidate)
         evidence = "При отмене вернётся CANCELLED."
         self.assertEqual(card.options, ((evidence, [1]),))
         self.assertEqual(card.sources, (Source(source.path, 31, evidence),))
-        self.assertIn(evidence, model.calls[1]["messages"][1]["content"])
-        self.assertNotIn("удаляется", model.calls[1]["messages"][1]["content"])
+        self.assertEqual(len(model.calls), 1)
+        self.assertIn(evidence, model.calls[0]["messages"][1]["content"])
+        self.assertNotIn("удаляется", model.calls[0]["messages"][1]["content"])
 
-        for response in ({"scope_matches": True, "keep": []},
-                         {"scope_matches": True, "keep": [True]},
-                         {"scope_matches": True, "keep": [2]},
-                         {"scope_matches": True, "keep": [1, 1]},
-                         {"scope_matches": False, "keep": [1]}):
+        for response in ({"quotes": []}, {"quotes": [True]}, {"quotes": [[1, 31]]},
+                         {"quotes": [1, 1]}, {"quotes": [1, 2]}):
             with self.subTest(response=response):
-                card, _ = ask(candidate, response)
+                card, _ = ask(response)
                 self.assertFalse(card.sources)
                 self.assertEqual(card.label, "Нет ответа в базе")
 
-        for invalid in ({**span, "source": 2}, {**span, "first": 29},
-                        {**span, "last": 33}, {**span, "source": True}):
+        for invalid in (0, -1, 2, 1.5):
             with self.subTest(span=invalid):
-                card, model = ask({"evidence": [invalid]})
+                card, model = ask({"quotes": [invalid]})
                 self.assertFalse(card.sources)
                 self.assertEqual(len(model.calls), 1)
         card, model = ask(candidate, question="Какой статус при отмене по контракту 2039 года?")
         self.assertFalse(card.sources)
-        self.assertEqual(len(model.calls), 1)
+        self.assertEqual(len(model.calls), 0)
 
     def test_preview_waits_for_complete_text_and_valid_citations(self):
         from copilot.suggest import _preview_options

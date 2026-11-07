@@ -1,4 +1,5 @@
 import queue
+import sqlite3
 import subprocess
 import threading
 import tkinter as tk
@@ -7,7 +8,7 @@ from tkinter import filedialog, ttk
 
 from .bootstrap import download_answer_model
 from .brains import BRAIN_PROVIDERS, create_brain, local_api_url, local_ollama_url
-from .configuration import BASE, RUNTIME, load_settings, save_settings
+from .configuration import RUNTIME
 from .hardware import read_vram
 from .i18n import translate
 from .knowledge_window import show_knowledge_window
@@ -22,9 +23,9 @@ from .whisper_install import WHISPER_DEVICES
 COPY = {
     "Ответы": ("Answers", "Respuestas"),
     "Выбрать модель…": ("Choose model…", "Elegir modelo…"),
-    "Выбрана {model}. Перезапусти Agent Utka, чтобы использовать её для ответов.": (
-        "{model} selected. Restart Agent Utka to use it for answers.",
-        "Se seleccionó {model}. Reinicia Agent Utka para usarlo en las respuestas.",
+    "Выбрана {model}.": (
+        "{model} selected.",
+        "Se seleccionó {model}.",
     ),
     "Модель распознавания": ("Speech model", "Modelo de voz"),
     "Адрес сервера распознавания": ("Speech server address", "Dirección del servidor de voz"),
@@ -100,10 +101,6 @@ COPY = {
         "Speech recognition, answers, and document search",
         "Reconocimiento de voz, respuestas y búsqueda en documentos",
     ),
-    "Изменения применятся после перезапуска приложения.": (
-        "Changes take effect when you restart the app.",
-        "Los cambios se aplican al reiniciar la aplicación.",
-    ),
     "Распознавание речи": ("Speech recognition", "Reconocimiento de voz"),
     "Источник распознавания": ("Speech provider", "Proveedor de voz"),
     "Встроенные модели": ("Built-in models", "Modelos integrados"),
@@ -149,14 +146,11 @@ COPY = {
     "Ollama не запустился. См. .runtime/ollama-app.log.": (
         "Ollama did not start. See .runtime/ollama-app.log.", "Ollama no se inició. Consulta .runtime/ollama-app.log.",
     ),
-    "Сохранено. Настройки применятся при следующем запуске.": (
-        "Saved. These settings take effect the next time you start the app.",
-        "Guardado. Los ajustes se aplican la próxima vez que abras la aplicación.",
-    ),
+    "Модель распознавания выбрана.": ("Speech model selected.", "Modelo de voz seleccionado."),
     "Не удалось скопировать промпт. {detail}": ("Could not copy the prompt. {detail}", "No se pudo copiar el prompt. {detail}"),
-    "Промпт скопирован. Вставь его в чат агента в папке проекта.": (
-        "Prompt copied. Paste it into an agent chat in your project folder.",
-        "Prompt copiado. Pégalo en un chat del agente en la carpeta de tu proyecto.",
+    "Промпт скопирован. Вставь его в чат агента и импортируй готовый документ.": (
+        "Prompt copied. Paste it into your agent chat, then import the resulting document.",
+        "Prompt copiado. Pégalo en el chat del agente e importa el documento generado.",
     ),
     "Документ проекта из Codex или Claude Code": (
         "Project document from Codex or Claude Code", "Documento del proyecto de Codex o Claude Code",
@@ -181,7 +175,7 @@ def show_settings(app):
     popup.configure(bg=background)
     popup.resizable(True, True)
     popup.minsize(560, 1)
-    settings = load_settings()
+    settings = app.settings
     style = ttk.Style(popup)
     style.configure("Copilot.Settings.TEntry", fieldbackground=background, foreground="#f3f5f1",
                     bordercolor=border, padding=(7, 4))
@@ -257,7 +251,7 @@ def show_settings(app):
     feedback = tk.StringVar()
     vram = tk.StringVar()
     loaded_model = tk.StringVar()
-    feedback_message = ("Изменения применятся после перезапуска приложения.", {})
+    feedback_message = ("", {})
     poll_id = None
     vram_poll_id = None
     speech_poll_id = None
@@ -477,7 +471,7 @@ def show_settings(app):
                 updates.update(whisper_model=variant, whisper_device=device)
             else:
                 updates.update(qwen_model=variant, qwen_device=device)
-            save_settings(updates)
+            app.apply_settings(updates)
             selected_stt = builtin_stt = engine
             if engine == "whisper":
                 whisper_model = variant
@@ -485,7 +479,7 @@ def show_settings(app):
             else:
                 qwen_model, qwen_device = variant, device
             update_fields()
-            show_feedback("Сохранено. Настройки применятся при следующем запуске.")
+            show_feedback("Модель распознавания выбрана.")
 
         qwen_row = f"{qwen_model}-cuda" if qwen_device == "cuda" else qwen_model
         speech_picker = show_speech_picker(
@@ -521,22 +515,23 @@ def show_settings(app):
 
         def with_brain(action):
             brain = open_brain(options)
+            temporary = brain is not app.llm
             try:
                 return action(brain)
             finally:
-                if brain is not app.llm:
+                if temporary:
                     brain.close()
 
         def use_model(name):
             updates = {"llm_provider": key, model_keys[key]: validate_ollama_model(name)}
             if key == "ollama_local":
                 updates["ollama_url"] = options["ollama_url"]
-            save_settings(updates)
             if key == "ollama":
                 (RUNTIME / "installer-setup.complete").touch()
+            app.apply_settings(updates)
             models[key] = name
             model.set(name)
-            show_feedback("Выбрана {model}. Перезапусти Agent Utka, чтобы использовать её для ответов.", model=name)
+            show_feedback("Выбрана {model}.", model=name)
 
         def load_installed():
             if key == "ollama" and not (RUNTIME / "ollama" / "ollama.exe").is_file():
@@ -738,22 +733,15 @@ def show_settings(app):
                 updates[model_keys[selected_provider]] = validate_ollama_model(name)
                 if selected_provider == "ollama_local":
                     updates["ollama_url"] = local_ollama_url(endpoint.get())
-            save_settings(updates)
-        except (OSError, ValueError) as error:
+            app.apply_settings(updates)
+        except (OSError, ValueError, sqlite3.Error) as error:
             show_error(error, "Не удалось сохранить настройки. {detail}")
             return
-        show_feedback("Сохранено. Настройки применятся при следующем запуске.")
+        close()
 
     def copy_prompt():
-        try:
-            suffix = {"ru": ".ru", "es": ".es"}.get(app.ui_language, "")
-            prompt = (BASE / "docs" / f"knowledge-pack-prompt{suffix}.md").read_text(encoding="utf-8")
-        except OSError as error:
-            show_error(error, "Не удалось скопировать промпт. {detail}")
-            return
-        popup.clipboard_clear()
-        popup.clipboard_append(prompt)
-        show_feedback("Промпт скопирован. Вставь его в чат агента в папке проекта.")
+        if app._copy_knowledge_prompt():
+            show_feedback("Промпт скопирован. Вставь его в чат агента и импортируй готовый документ.")
 
     prompt_row = tk.Frame(knowledge_section, bg=surface)
     prompt_row.grid(row=5, column=0, columnspan=2, sticky="ew")

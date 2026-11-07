@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .knowledge import PRIVATE_BODY, project_pack
-from .knowledge_pack import MAX_DOCUMENT_BYTES, imported_documents, parse_pack
+from .knowledge_pack import imported_documents, parse_pack
 
 
 @dataclass(frozen=True)
@@ -79,8 +79,6 @@ def _compile_glossary(data):
 
 @lru_cache(maxsize=128)
 def _read_pack(path, modified_ns, size):
-    if size > MAX_DOCUMENT_BYTES:
-        return EMPTY
     try:
         text = path.read_text(encoding="utf-8-sig")
         if "\x00" in text or PRIVATE_BODY.search(text):
@@ -91,19 +89,31 @@ def _read_pack(path, modified_ns, size):
         return EMPTY
 
 
-def project_asr_glossary(root):
+def project_asr_glossary(root, *, documents_only=False):
     if not root:
         return EMPTY
-    path = Path(root) / ".copilot-knowledge" / ".asr-glossary.json"
-    try:
-        stat = path.stat()
-        local = _read(path, stat.st_mtime_ns, stat.st_size)
-    except OSError:
-        local = EMPTY
-    pack = project_pack(root)
+    if isinstance(root, tuple):
+        profiles = [project_asr_glossary(base, documents_only=documents_only) for base in root]
+        hints = tuple(dict.fromkeys(term for profile in profiles for term in profile.hints))
+        rules = {}
+        for profile in profiles:
+            for pattern, term, context in profile.aliases:
+                key = (pattern.pattern, context.pattern if context else None)
+                rules.setdefault(key, {})[term] = (pattern, term, context)
+        # A spoken alias shared by different bases must not silently pick one meaning.
+        aliases = tuple(next(iter(terms.values())) for terms in rules.values() if len(terms) == 1)
+        return AsrGlossary(hints[:20], aliases)
+    local = EMPTY
     documents = imported_documents(root)
-    if pack is not None:
-        documents = (pack, *documents)
+    if not documents_only:
+        path = Path(root) / ".copilot-knowledge" / ".asr-glossary.json"
+        try:
+            stat = path.stat()
+            local = _read(path, stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            pass
+        if (pack := project_pack(root)) is not None:
+            documents = (pack, *documents)
     packs = []
     for document in documents:
         try:

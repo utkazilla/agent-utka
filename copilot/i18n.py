@@ -33,10 +33,40 @@ def flag_images(master):
 
 
 OVERLAY_COPY = {
+    "Все базы": ("All bases", "Todas las bases"),
+    "Добавить в базу": ("Add to knowledge base", "Añadir a una base"),
+    "Новая база…": ("New base…", "Nueva base…"),
+    "Название новой базы": ("New base name", "Nombre de la nueva base"),
+    "Введи название базы — до 100 символов.": (
+        "Enter a base name, up to 100 characters.", "Escribe un nombre de hasta 100 caracteres."),
+    "Такая база уже есть. Выбери её в списке.": (
+        "This base already exists. Choose it from the list.", "Esta base ya existe. Selecciónala en la lista."),
+    "В одну базу можно добавить несколько выжимок.": (
+        "You can add several summaries to one base.", "Puedes añadir varios resúmenes a una base."),
+    "Импортировать": ("Import", "Importar"),
+    "Отмена": ("Cancel", "Cancelar"),
+    "Ищу ответ во всех базах…": ("Searching all bases…", "Buscando en todas las bases…"),
     "ИИ-помощник для звонков": ("AI assistant for calls", "Asistente de IA para llamadas"),
     "Подготовка локальных моделей…": ("Preparing local models…", "Preparando los modelos locales…"),
-    "Выбери папку проекта или импортируй документ.": (
-        "Choose a project folder or import a document.", "Elige una carpeta de proyecto o importa un documento."),
+    "Скопируй промпт в Codex или Claude Code. Затем импортируй готовую выжимку.": (
+        "Paste the prompt into Codex or Claude Code, then import the summary.",
+        "Pega el prompt en Codex o Claude Code e importa el resumen."),
+    "Скопировать промпт": ("Copy prompt", "Copiar prompt"),
+    "Импортировать выжимку": ("Import summary", "Importar resumen"),
+    "Выбери готовую выжимку": ("Choose the finished summary", "Elige el resumen generado"),
+    "Не удалось скопировать промпт": ("Couldn't copy the prompt", "No se pudo copiar el prompt"),
+    "Промпт скопирован. Вставь его в Codex или Claude Code, затем импортируй выжимку.": (
+        "Prompt copied. Paste it into Codex or Claude Code, then import the summary.",
+        "Prompt copiado. Pégalo en Codex o Claude Code e importa el resumen."),
+    "Импортирую выжимку…": ("Importing summary…", "Importando el resumen…"),
+    "Импорт не завершён. Проверь файл и повтори.": (
+        "Import failed. Check the file and try again.", "Error al importar. Revisa el archivo e inténtalo de nuevo."),
+    "Импортируй выжимку, чтобы получать ответы.": (
+        "Import a summary to get answers.", "Importa un resumen para obtener respuestas."),
+    "Готово · выдели вопрос в расшифровке и нажми «Дай ответ».": (
+        "Ready · select a question in the transcript and click Ask.",
+        "Listo · selecciona una pregunta en la transcripción y pulsa Preguntar."),
+    "Подготавливаю базу…": ("Preparing knowledge…", "Preparando la base…"),
     "Пауза": ("Pause", "Pausar"),
     "Речь появится в расшифровке": ("Waiting for speech", "Esperando que alguien hable"),
     "Свернуть": ("Minimize", "Contraer"),
@@ -62,7 +92,7 @@ OVERLAY_COPY = {
     "Слушать": ("Listen", "Escuchar"),
     "Пауза · звук не обрабатывается": ("Paused · audio processing stopped", "En pausa · no se procesa el audio"),
     "Подключение к звуку Windows…": ("Connecting to Windows audio…", "Conectando con el audio de Windows…"),
-    "Нет локального проекта": ("No local project", "Sin proyecto local"),
+    "База не выбрана": ("No knowledge base selected", "Sin base de conocimiento seleccionada"),
     "Не удалось сохранить выбор": ("Couldn't save your selection", "No se pudo guardar la selección"),
     "Не удалось сохранить язык": ("Couldn't save your language", "No se pudo guardar el idioma"),
     "Индекс обновляется…": ("Updating the index…", "Actualizando el índice…"),

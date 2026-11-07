@@ -1,12 +1,14 @@
 import json
+import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from copilot.asr_glossary import project_asr_glossary
-from copilot.knowledge import Knowledge
-from copilot.knowledge_pack import PACK_FENCE, PACK_FILENAME, create_workspace, import_documents
+from copilot.knowledge import Knowledge, discover_projects
+from copilot.knowledge_pack import PACK_FENCE, PACK_FILENAME, create_workspace, import_documents, import_summary
 
 
 def pack(text, term, heard, *, fence=PACK_FENCE, **rule):
@@ -16,6 +18,148 @@ def pack(text, term, heard, *, fence=PACK_FENCE, **rule):
 
 
 class KnowledgePackTest(unittest.TestCase):
+    def test_large_import_indexes_its_end_and_preserves_a_large_glossary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / PACK_FILENAME
+            terms = [f"ProjectSymbol{i}" for i in range(260)]
+            glossary = {"terms": terms, "hotwords": terms[:10],
+                        "aliases": [{"term": term, "heard": [f"spoken symbol {i}"]}
+                                    for i, term in enumerate(terms)]}
+            text = ("# Complete project\n\nThe initial milestone is BirchLaunch.\n\n"
+                    + ("Documentation for an unrelated module.\n" * 7000)
+                    + "\n## Final decision\nThe release codename is SaffronHarbor.\n\n"
+                    + PACK_FENCE + "\n" + json.dumps(glossary) + "\n\u0060\u0060\u0060\n")
+            source.write_text(text, encoding="utf-8")
+            root = import_summary(base / "runtime", source)
+            index = Knowledge(base / "index.sqlite", documents_only=True)
+            self.assertEqual(index.refresh(root)[0], 1)
+            self.assertIn("BirchLaunch", index.search(root, "BirchLaunch")[0].text)
+            hit = index.search(root, "SaffronHarbor")[0]
+            self.assertIn("SaffronHarbor", hit.text)
+            self.assertIn("SaffronHarbor", "\n".join(text.splitlines()[hit.line-1:hit.line+10]))
+            self.assertEqual(project_asr_glossary(root, documents_only=True).normalize("spoken symbol 259"),
+                             "ProjectSymbol259")
+
+    def test_long_paragraphs_have_no_silently_dropped_tail(self):
+        from copilot.knowledge import _chunks
+        text = "# Decision\n" + " ".join(f"uniqueToken{i:04}" for i in range(1000)) + "\nLastFact"
+        parts = list(_chunks(text, compact=True))
+        indexed = " ".join(body for _, body in parts)
+        for token in text.split():
+            self.assertIn(token, indexed)
+        self.assertTrue(all(len(body) <= 3200 for _, body in parts))
+        self.assertTrue(all(line == 2 for line, body in parts if "uniqueToken" in body))
+
+    def test_legacy_base_updates_original_after_another_document_is_added(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / "notes.md"
+            source.write_text("Oranges grow in the north.", encoding="utf-8")
+            identity = hashlib.sha256(os.path.normcase(str(source.resolve())).encode("utf-8")).hexdigest()[:20]
+            root = base / "runtime/knowledge" / identity
+            import_documents(root, [source])
+            other_folder = base / "other"
+            other_folder.mkdir()
+            other = other_folder / "notes.md"
+            other.write_text("Bananas grow in the south.", encoding="utf-8")
+            import_summary(base / "runtime", other, target=root)
+            source.write_text("Pears grow in the east.", encoding="utf-8")
+            import_summary(base / "runtime", source, target=root)
+            index = Knowledge(base / "index.sqlite", documents_only=True)
+            self.assertEqual(index.refresh(root)[0], 2)
+            self.assertFalse(index.search(root, "Oranges"))
+            self.assertIn("Pears", index.search(root, "Pears")[0].text)
+            self.assertIn("Bananas", index.search(root, "Bananas")[0].text)
+
+    def test_all_base_glossary_keeps_terms_without_conflicting_substitutions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / PACK_FILENAME
+            source.write_text(pack("Orchard guide.", "FRUIT_A", "fruit"), encoding="utf-8")
+            first = import_summary(base / "runtime", source, name="Atlas")
+            source.write_text(pack("Spaceship guide.", "FRUIT_B", "fruit"), encoding="utf-8")
+            second = import_summary(base / "runtime", source, name="Orbit")
+            glossary = project_asr_glossary((first, second), documents_only=True)
+            self.assertEqual(set(glossary.hints), {"FRUIT_A", "FRUIT_B"})
+            self.assertEqual(glossary.normalize("fruit"), "fruit")
+            self.assertEqual(project_asr_glossary(first, documents_only=True).normalize("fruit"), "FRUIT_A")
+
+    def test_named_base_keeps_same_named_documents_and_updates_only_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            sources = []
+            for name, fact in (("one", "Oranges grow in the northern orchard."),
+                               ("two", "Bananas grow in the southern orchard.")):
+                folder = base / name
+                folder.mkdir()
+                source = folder / PACK_FILENAME
+                source.write_text("# Orchard\n\n" + fact, encoding="utf-8")
+                sources.append(source)
+            root = import_summary(base / "runtime", sources[0], name="Fruit project")
+            self.assertEqual(import_summary(base / "runtime", sources[1], target=root), root)
+            projects = discover_projects(documents_only=True, managed=base / "runtime/knowledge")
+            self.assertEqual([(p.name, p.root) for p in projects], [("Fruit project", root)])
+            index = Knowledge(base / "index.sqlite", documents_only=True)
+            self.assertEqual(index.refresh(root)[0], 2)
+            self.assertIn("Oranges", index.search(root, "Oranges")[0].text)
+            self.assertIn("Bananas", index.search(root, "Bananas")[0].text)
+            sources[0].write_text("# Revised document\n\nPears grow in the eastern orchard.", encoding="utf-8")
+            import_summary(base / "runtime", sources[0], target=root)
+            self.assertEqual(index.refresh(root)[0], 2)
+            self.assertFalse(index.search(root, "Oranges"))
+            self.assertIn("Pears", index.search(root, "Pears")[0].text)
+            self.assertIn("Bananas", index.search(root, "Bananas")[0].text)
+            self.assertEqual(discover_projects(documents_only=True, managed=base / "runtime/knowledge")[0].name,
+                             "Fruit project")
+
+    def test_invalid_named_import_does_not_create_or_change_a_base(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / "notes.md"
+            source.write_text("api_key = example-secret", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                import_summary(base / "runtime", source, name="Atlas")
+            self.assertFalse((base / "runtime/knowledge").exists())
+
+    def test_summary_import_creates_named_base_and_updates_same_document(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / PACK_FILENAME
+            source.write_text("# Atlas\n\nThe retry delay is 5 seconds.\n", encoding="utf-8")
+            runtime = base / "runtime"
+            root = import_summary(runtime, source)
+            projects = discover_projects(documents_only=True, managed=runtime / "knowledge")
+            self.assertEqual([(p.name, p.root) for p in projects], [("Atlas", root)])
+            index = Knowledge(runtime / "index.sqlite", documents_only=True)
+            self.assertEqual(index.refresh(root)[0], 1)
+            self.assertIn("5 seconds", index.search(root, "retry delay")[0].text)
+            source.write_text("# Atlas\n\nThe retry delay is 9 seconds.\n", encoding="utf-8")
+            self.assertEqual(import_summary(runtime, source), root)
+            self.assertEqual(index.refresh(root)[0], 1)
+            self.assertIn("9 seconds", index.search(root, "retry delay")[0].text)
+            self.assertEqual(len(list((runtime / "knowledge").iterdir())), 1)
+
+    def test_same_filename_in_different_projects_has_separate_knowledge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            runtime = base / "runtime"
+            roots = []
+            for name in ("Atlas", "Orbit"):
+                folder = base / name
+                folder.mkdir()
+                source = folder / PACK_FILENAME
+                source.write_text(f"# {name}\n\nThe spacecraft is {name}.", encoding="utf-8")
+                roots.append(import_summary(runtime, source))
+            self.assertNotEqual(*roots)
+            projects = discover_projects(documents_only=True, managed=runtime / "knowledge")
+            self.assertEqual([p.name for p in projects], ["Atlas", "Orbit"])
+            source.write_text("api_key = example-secret", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                import_summary(runtime, source)
+            stored, = (roots[1] / ".copilot-knowledge" / "imports").iterdir()
+            self.assertIn("spacecraft is Orbit", stored.read_text(encoding="utf-8"))
+
     def test_project_root_pack_is_loaded_without_import_and_respects_git_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp).resolve()

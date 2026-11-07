@@ -32,6 +32,13 @@ COPY = {
     "Устанавливаю PyTorch CUDA для Qwen…": (
         "Installing PyTorch CUDA for Qwen…", "Instalando PyTorch CUDA para Qwen…",
     ),
+    "Устанавливаю Transformers для Qwen…": (
+        "Installing Transformers for Qwen…", "Instalando Transformers para Qwen…",
+    ),
+    "{stage} · загрузка файла {percent}%": (
+        "{stage} · file download {percent}%", "{stage} · descarga del archivo {percent}%",
+    ),
+    "{stage} · {percent}%": ("{stage} · {percent}%", "{stage} · {percent}%"),
     "Qwen3-ASR 1.7B INT8 работает на CPU и требует больше оперативной памяти, чем 0.6B.": (
         "Qwen3-ASR 1.7B INT8 runs on CPU and uses more system memory than 0.6B.",
         "Qwen3-ASR 1.7B INT8 usa la CPU y requiere más memoria RAM que 0.6B.",
@@ -57,17 +64,12 @@ COPY = {
         "Faster Whisper no pasó la prueba de CUDA. Comprueba el controlador NVIDIA y la VRAM libre.",
     ),
     "Скачиваю файлы модели…": ("Downloading model files…", "Descargando los archivos del modelo…"),
-    "Скачиваю файлы модели · {percent}%": ("Downloading model files · {percent}%", "Descargando los archivos del modelo · {percent}%"),
     "Проверяю файлы модели…": ("Checking model files…", "Verificando los archivos del modelo…"),
     "Не удалось проверить установленные модели. {detail}": (
         "Couldn't check installed models. {detail}", "No se pudieron comprobar los modelos instalados. {detail}",
     ),
     "Не удалось установить модель. {detail}": (
         "Couldn't install the model. {detail}", "No se pudo instalar el modelo. {detail}",
-    ),
-    "Модель {name} выбрана. Перезапусти Agent Utka для применения.": (
-        "{name} selected. Restart Agent Utka to use it.",
-        "Se seleccionó {name}. Reinicia Agent Utka para usarlo.",
     ),
 }
 
@@ -318,7 +320,7 @@ class SpeechPicker:
             device = "cuda" if key.endswith("-cuda") else "cpu"
         else:
             device = next((name for name, label in WHISPER_DEVICES.items() if label == self.device.get()), "auto")
-        if key in self.installed and device != "cuda":
+        if key in self.installed and (device != "cuda" or engine == "qwen" or self.cuda_ready):
             self.apply(key, device)
             return
         stop = self.stop = threading.Event()
@@ -345,39 +347,34 @@ class SpeechPicker:
                 self.show_models(self.installed_table, [item for item in self.models if item in self.installed])
                 if engine == "whisper" and device == "cuda":
                     self.cuda_ready = True
-                self.apply(key, device)
+                if self.apply(key, device):
+                    return
             self.update_action()
 
         self.run(install, finish)
 
     def apply(self, key, device):
-        engine, variant, name, *_ = self.models[key]
+        engine, variant, *_ = self.models[key]
         try:
             self.use_model(engine, variant, device)
         except (OSError, ValueError) as error:
             self.feedback.set(self.t("Не удалось сохранить выбор. {detail}", detail=str(error)))
-            return
-        previous, self.saved_key = self.saved_key, key
-        self.update_saved_model()
-        self.mark_status(previous)
-        self.mark_status(key)
-        name = f"{name} · {variant}" if engine == "whisper" else name
-        self.feedback.set(self.t("Модель {name} выбрана. Перезапусти Agent Utka для применения.", name=name))
+            return False
+        self.window.destroy()
+        return True
 
     def update_progress(self, stage, completed, total):
-        if stage == "dependencies":
-            message = self.t("Устанавливаю Faster Whisper…")
-        elif stage == "cuda":
-            message = self.t("Устанавливаю cuBLAS и cuDNN для CUDA 12…")
-        elif stage == "qwen_cuda":
-            message = self.t("Устанавливаю PyTorch CUDA для Qwen…")
-        elif stage == "verify":
-            message = self.t("Проверяю файлы модели…")
-        elif completed is not None and total:
-            message = self.t("Скачиваю файлы модели · {percent}%",
-                             percent=min(100, round(100 * completed / total)))
-        else:
-            message = self.t("Скачиваю файлы модели…")
+        packages = {
+            "dependencies": "Устанавливаю Faster Whisper…",
+            "cuda": "Устанавливаю cuBLAS и cuDNN для CUDA 12…",
+            "qwen_cuda": "Устанавливаю PyTorch CUDA для Qwen…",
+            "qwen_transformers": "Устанавливаю Transformers для Qwen…",
+        }
+        message = self.t(packages.get(stage, "Проверяю файлы модели…" if stage == "verify"
+                                      else "Скачиваю файлы модели…"))
+        if completed is not None and total:
+            template = "{stage} · загрузка файла {percent}%" if stage in packages else "{stage} · {percent}%"
+            message = self.t(template, stage=message.removesuffix("…"), percent=min(100, 100 * completed // total))
         self.feedback.set(message)
 
     def cancel_download(self):

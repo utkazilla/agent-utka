@@ -3,6 +3,7 @@
 import argparse
 import io
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -133,7 +134,7 @@ def whisper_cuda_installed():
         return False
 
 
-def _run_worker(args, cancelled, progress=None):
+def _run_worker(args, cancelled, progress=None, *, pip_progress=None):
     executable = Path(sys.executable)
     # The Windows launcher uses pythonw. The worker needs a stdout pipe.
     if executable.name.lower() == "pythonw.exe":
@@ -160,6 +161,12 @@ def _run_worker(args, cancelled, progress=None):
                     payload = line.removeprefix(_PROGRESS).strip()
                     if line.startswith(_PROGRESS) and payload.isascii() and payload.isdigit():
                         events.put(int(payload))
+                    elif pip_progress is not None:
+                        match = re.fullmatch(r"Progress ([0-9]+) of ([0-9]+)", line.strip())
+                        if match:
+                            events.put(tuple(map(int, match.groups())))
+                        elif line.startswith("Installing collected packages:"):
+                            events.put((None, None))
             finally:
                 events.put(None)
 
@@ -178,7 +185,9 @@ def _run_worker(args, cancelled, progress=None):
                         except subprocess.TimeoutExpired:
                             continue
                     break
-                if progress is not None:
+                if isinstance(transferred, tuple):
+                    pip_progress(*transferred)
+                elif progress is not None:
                     progress(transferred)
         finally:
             if process.poll() is None:
@@ -192,6 +201,18 @@ def _run_worker(args, cancelled, progress=None):
         return False
 
 
+def _install_packages(index, packages, stage, on_progress, cancelled, *, no_deps=False):
+    on_progress(stage, None, None)
+    args = ["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
+            "--index-url", index, "--only-binary=:all:", "--progress-bar=raw"]
+    if no_deps:
+        args.append("--no-deps")
+    return _run_worker(
+        [*args, *packages], cancelled,
+        pip_progress=lambda completed, total: on_progress(stage, completed, total),
+    )
+
+
 def install_whisper(runtime, variant, on_progress=lambda *_: None, cancelled=lambda: False, *, device="auto"):
     """Prepare the selected model. Return False when the caller cancels."""
     source = _source(variant)
@@ -203,23 +224,18 @@ def install_whisper(runtime, variant, on_progress=lambda *_: None, cancelled=lam
         bundled = (Path(sys.executable).parent / "agent-utka-runtime").is_file()
         if sys.prefix == sys.base_prefix and not bundled:
             raise RuntimeError("Run Setup Agent Utka.ps1 to create the app's Python environment.")
-        on_progress("dependencies", None, None)
-        code = _run_worker(
-            ["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
-             "--index-url", "https://pypi.org/simple", "--only-binary=:all:", f"{_PACKAGE}=={_VERSION}", _CTRANSLATE2],
-            cancelled,
+        code = _install_packages(
+            "https://pypi.org/simple", [f"{_PACKAGE}=={_VERSION}", _CTRANSLATE2],
+            "dependencies", on_progress, cancelled,
         )
         if code is False or cancelled():
             return False
         if code or not _package_installed():
             raise RuntimeError("Could not install Faster Whisper. Check your connection and try again.")
     if device == "cuda" and not whisper_cuda_installed():
-        on_progress("cuda", None, None)
-        code = _run_worker(
-            ["-m", "pip", "--isolated", "--disable-pip-version-check", "install",
-             "--index-url", "https://pypi.org/simple", "--only-binary=:all:", "--no-deps",
-             *(f"{package}=={pin}" for package, pin in _GPU_PACKAGES.items())],
-            cancelled,
+        code = _install_packages(
+            "https://pypi.org/simple", [f"{package}=={pin}" for package, pin in _GPU_PACKAGES.items()],
+            "cuda", on_progress, cancelled, no_deps=True,
         )
         if code is False or cancelled():
             return False

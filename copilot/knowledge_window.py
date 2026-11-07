@@ -6,7 +6,7 @@ from pathlib import Path
 from tkinter import ttk
 
 from .i18n import translate
-from .knowledge import Source
+from .knowledge import Source, source_location
 from .retrieval import SearchUnavailable
 
 
@@ -32,7 +32,7 @@ COPY = {
 
 
 def show_knowledge_window(app, parent, index, root):
-    root = Path(root).resolve()
+    root = root if isinstance(root, tuple) else Path(root).resolve()
     w = tk.Toplevel(parent)
     w.transient(parent)
     w.attributes("-topmost", app.top.get())
@@ -48,7 +48,8 @@ def show_knowledge_window(app, parent, index, root):
     frame.pack(fill="both", expand=True)
     app._label(frame, t("Просмотр базы знаний"), size=14, bold=True, bg=bg).pack(fill="x")
     provider = "SQLite FTS5" if index.retriever is None else "SQLite · Local search API"
-    app._label(frame, f"{root.name} · {provider}", size=9, bg=bg).pack(fill="x")
+    scope_name = app._tr("Все базы") if isinstance(root, tuple) else app.project_label.get()
+    app._label(frame, f"{scope_name} · {provider}", size=9, bg=bg).pack(fill="x")
     app._label(frame, t("Выбери документ или введи вопрос для поиска."), size=9, bg=bg).pack(fill="x")
     footer = tk.Frame(frame, bg=bg)
     footer.pack(side="bottom", fill="x", pady=(8, 0))
@@ -88,7 +89,7 @@ def show_knowledge_window(app, parent, index, root):
         preview.configure(state="normal")
         preview.delete("1.0", "end")
         for source in passages:
-            location = source.path.relative_to(root).as_posix()
+            location = source_location(root, source.path)
             preview.insert("end", f"{location} · {t('Строка {line}', line=source.line)}\n{source.text}\n\n")
         preview.configure(state="disabled")
 
@@ -126,8 +127,8 @@ def show_knowledge_window(app, parent, index, root):
         rows.clear()
         display([])
         for number, value in enumerate(values, 1):
-            label = (f"{number:02}  {value.path.relative_to(root).as_posix()}:{value.line}"
-                     if hits else Path(value).as_posix())
+            label = (f"{number:02}  {source_location(root, value.path)}:{value.line}" if hits
+                     else source_location(root, value) if isinstance(root, tuple) else Path(value).as_posix())
             key = tree.insert("", "end", values=(label,))
             rows[key] = value
         status.set(t("Найдено фрагментов · {count}" if hits else "Документов в индексе · {count}",
@@ -160,8 +161,13 @@ def show_knowledge_window(app, parent, index, root):
             run(lambda: index.index_passages(root, row), show)
 
     def cleanup(event):
-        if event.widget is w and poll_id is not None:
-            w.after_cancel(poll_id)
+        nonlocal status, poll_id
+        if event.widget is w:
+            if poll_id is not None:
+                w.after_cancel(poll_id)
+                poll_id = None
+            # Release the Tk variable on the UI thread, before a worker collects callback cycles.
+            status = None
 
     app._button(controls, t("Проверить поиск"), search, primary=True).pack(side="left", padx=6)
     app._button(controls, t("Документы"), documents).pack(side="left")

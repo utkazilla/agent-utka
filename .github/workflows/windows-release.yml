@@ -84,21 +84,26 @@ jobs:
           sha256sum --check ./*.sha256
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "Agent Utka $GITHUB_REF_NAME" --notes-file - ./*.exe ./*.sha256 <<'NOTES'
-          Download and double-click the Windows x64 setup file. Open **Agent Utka** from Start after installation. Python is included; no terminal or separate Python install is required.
+          Download and double-click **Agent-Utka-Setup-v0.1.11-x64.exe** on Windows 10 or 11 x64. Python is included; no terminal or separate Python installation is required.
 
-          Choose **Download and start** to download Qwen speech recognition and Ollama with the default answer model. The initial download is about 6 GB. Keep about 12 GB free for downloading and extracting the files. Models stay on your PC. You can also open the app and configure existing local services in Settings.
+          ### What's new
+          - **Copy prompt → Import summary** on the main screen. Pick an existing named knowledge base or create one without choosing a storage folder.
+          - **Multiple documents per base.** Reimporting the same original file into the same base updates its copy. Different files with identical names stay separate.
+          - **All bases search.** Search one base or all imported bases. Citations and the knowledge browser retain the originating base.
+          - **Complete project-memory prompts in English, Russian and Spanish.** The prompts cover accessible conversation history, code structure, MR/PR changes and review discussions, linked documentation, source provenance, historical decisions and coverage gaps. They do not impose output-length or full-glossary entry quotas.
+          - **Large knowledge documents.** Removed the 180 KB import cap and the 200-entry glossary cap. Long paragraphs retain their full text and original citation lines.
+          - **Model/settings improvements.** Saved model changes apply in the current session, selection dialogs close after saving, and dependency downloads show progress.
 
-          The Start menu and desktop shortcuts use the Agent Utka duck icon. The answer and speech model pickers mark the saved selection. To free memory held by a loaded Ollama model, open **Settings**, select **Refresh VRAM**, choose the model, and select **Unload model**. Ollama can load it again for the next request.
+          ### Getting started
+          Open **Agent Utka** from Start. **Download and start** prepares Qwen speech recognition and portable Ollama with the default answer model. Allow about 6 GB of downloads and 12 GB of free disk space during initial setup. Models are downloaded to your PC and are not bundled in this release.
 
-          If you skip first-run setup, **Download and select** in the answer model catalog now installs built-in Ollama before downloading the model.
+          Copy the project-memory prompt into your project conversation, review the generated Markdown, then import it into the desired base. Select transcript text and press **Ask** or **Ctrl+Enter**. Open **Sources** to inspect the evidence, or **Settings → Knowledge base → Browse knowledge** to test retrieval.
 
-          **Copy prompt** in Knowledge base settings includes the English, Russian, and Spanish templates.
+          Speech and answer providers remain independently configurable. Qwen3-ASR 0.6B and 1.7B support CPU and NVIDIA GPU; Faster Whisper CUDA dependencies are downloaded on demand. Loaded models can be unloaded through Settings.
 
-          For Faster Whisper, choose **NVIDIA GPU (CUDA)** to install and verify cuBLAS and cuDNN on demand. The speech controls show the model in memory and can unload it. Ollama models can also be unloaded from the model picker. Open **Settings → Knowledge base → Browse knowledge** to inspect indexed documents and test retrieval.
+          The knowledge prompt can only extract accessible evidence. Unavailable messages, documents and review threads are recorded as gaps, not invented answers.
 
-          **Settings → Speech recognition → Choose model…** has searchable **Catalog** and **Installed** tabs. Both Qwen3-ASR sizes now offer **BF16 · NVIDIA GPU** and **INT8 · CPU** builds. The first Qwen GPU setup downloads PyTorch CUDA. The catalog also includes all 17 Faster Whisper variants, including Turbo and Distil.
+          The Windows build runs source tests and checks a fresh installation with the bundled interpreter. A SHA-256 checksum is attached. The installer is not code-signed yet, so Windows may show a SmartScreen warning.
 
-          The installer was tested by installing and starting the app with its own Python. The SHA-256 file is provided for download verification.
-
-          [See the transcript, selected question, and cited answer in the demo.](https://github.com/utkazilla/agent-utka#see-it-in-action)
+          [Tutorial and examples](https://github.com/utkazilla/agent-utka#use-your-own-project)
           NOTES

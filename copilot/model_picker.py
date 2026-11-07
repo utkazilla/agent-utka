@@ -68,6 +68,7 @@ COPY = {
     "Скачиваю {name}…": ("Downloading {name}…", "Descargando {name}…"),
     "Скачиваю Ollama · {percent}%": ("Downloading Ollama · {percent}%", "Descargando Ollama · {percent}%"),
     "Распаковываю Ollama…": ("Extracting Ollama…", "Extrayendo Ollama…"),
+    "Распаковываю Ollama · {percent}%": ("Extracting Ollama · {percent}%", "Extrayendo Ollama · {percent}%"),
     "Скачиваю {name} · текущий слой {percent}%": (
         "Downloading {name} · current layer {percent}%", "Descargando {name} · capa actual {percent}%",
     ),
@@ -75,10 +76,6 @@ COPY = {
     "Загрузка отменена.": ("Download cancelled.", "Descarga cancelada."),
     "Не удалось скачать {name}. {detail}": ("Couldn't download {name}. {detail}", "No se pudo descargar {name}. {detail}"),
     "Не удалось сохранить выбор. {detail}": ("Couldn't save the selection. {detail}", "No se pudo guardar la selección. {detail}"),
-    "Выбрана {name}. Перезапусти Agent Utka, чтобы использовать её для ответов.": (
-        "{name} selected. Restart Agent Utka to use it for answers.",
-        "Se seleccionó {name}. Reinicia Agent Utka para usarlo en las respuestas.",
-    ),
 }
 
 
@@ -457,7 +454,8 @@ class ModelPicker:
                 self.downloaded.add(self.tag(name))
                 if name in self.variants:
                     self.variant_table.item(name, values=self.variant_values(self.variants[name]))
-                self.apply(name)
+                if self.apply(name):
+                    return
                 self.refresh_installed()
             self.update_action()
 
@@ -468,24 +466,19 @@ class ModelPicker:
             self.use_model(name)
         except (OSError, ValueError) as error:
             self.feedback.set(self.t("Не удалось сохранить выбор. {detail}", detail=str(error)))
-            return
-        self.saved_model = name
-        self.saved_label.set(self.t("Выбор в настройках · {name}", name=name))
-        for item in self.variants.values():
-            self.variant_table.item(item.tag, values=self.variant_values(item))
-        for name_on_disk in self.installed_models:
-            self.installed_table.set(name_on_disk, "status", self.t("Выбрана") if self.is_saved(name_on_disk) else "")
-        self.feedback.set(self.t("Выбрана {name}. Перезапусти Agent Utka, чтобы использовать её для ответов.",
-                                 name=name))
+            return False
+        self.window.destroy()
+        return True
 
     def show_progress(self, name, status, completed, total):
         if not self.stop_download or self.stop_download.is_set():
             return
-        percent = min(100, round(100 * completed / total)) if completed is not None and total else None
+        percent = min(100, 100 * completed // total) if completed is not None and total else None
         if status == "Downloading Ollama" and percent is not None:
             self.feedback.set(self.t("Скачиваю Ollama · {percent}%", percent=percent))
         elif status == "Extracting Ollama":
-            self.feedback.set(self.t("Распаковываю Ollama…"))
+            self.feedback.set(self.t("Распаковываю Ollama…") if percent is None else
+                              self.t("Распаковываю Ollama · {percent}%", percent=percent))
         elif percent is not None:
             self.feedback.set(self.t("Скачиваю {name} · текущий слой {percent}%", name=name, percent=percent))
         else:
@@ -499,6 +492,7 @@ class ModelPicker:
 
     def cleanup(self, event):
         if event.widget is self.window:
+            self.jobs.clear()
             if self.stop_download:
                 self.stop_download.set()
             if self.after_id is not None:

@@ -12,10 +12,32 @@ from pathlib import Path
 from urllib.error import HTTPError
 
 from copilot.configuration import load_settings, save_settings
-from copilot.speech import RATE, create_asr
+from copilot.speech import RATE, SpeechSession, create_asr
 
 
 class SpeechProviderTest(unittest.TestCase):
+    def test_reconfigure_releases_old_model_before_loading_new_model(self):
+        old = Mock(return_value="old")
+        new = Mock(return_value="new")
+        live = threading.Event()
+        live.set()
+        speech = SpeechSession(lambda: old, live.is_set)
+        self.assertEqual(speech(b"audio"), "old")
+
+        def load_new():
+            old.unload.assert_called_once()
+            return new
+
+        factory = Mock(side_effect=load_new)
+        live.clear()
+        speech.reconfigure(factory)
+        speech.warm()
+        old.unload.assert_called_once()
+        factory.assert_not_called()
+        self.assertIsNone(speech.loaded())
+        live.set()
+        self.assertEqual(speech(b"audio"), "new")
+
     def test_unloading_speech_does_not_reload_until_listening_resumes(self):
         from copilot.speech import SpeechSession
 

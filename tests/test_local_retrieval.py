@@ -6,10 +6,63 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from copilot.knowledge import Knowledge
+from copilot.knowledge_pack import import_summary
 from copilot.retrieval import LocalSearch, SearchUnavailable, local_search_url
+from copilot.suggest import Advisor
 
 
 class LocalRetrievalTests(unittest.TestCase):
+    def test_external_line_reference_finds_the_requested_long_line_segment(self):
+        class References:
+            def references(self, root, query, limit):
+                return [("long.md", 1)]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "long.md").write_text(("Background material. " * 300)
+                                         + "The codename is SaffronHarbor.", encoding="utf-8")
+            index = Knowledge(root / "index.sqlite", retriever=References())
+            index.refresh(root)
+            hit = index.search(root, "SaffronHarbor")[0]
+            self.assertIn("SaffronHarbor", hit.text)
+            self.assertEqual(hit.line, 1)
+
+    def test_combined_search_keeps_bases_and_conflicting_facts_distinct(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "notes.md"
+            roots = []
+            for name, delay in (("Atlas", 5), ("Orbit", 9), ("Outside", 80)):
+                source.write_text(f"Retry delay is {delay} seconds.", encoding="utf-8")
+                roots.append(import_summary(base / "runtime", source, name=name))
+            index = Knowledge(base / "index.sqlite", documents_only=True)
+            for root in roots:
+                index.refresh(root)
+            scope = tuple(roots[:2])
+            hits = index.search(scope, "retry delay", limit=8)
+            self.assertEqual({hit.text for hit in hits}, {"Retry delay is 5 seconds.", "Retry delay is 9 seconds."})
+            self.assertEqual(len(index.search(roots[0], "retry delay", limit=8)), 1)
+            from copilot.knowledge import source_location
+            self.assertEqual({source_location(scope, hit.path) for hit in hits},
+                             {"Atlas / notes.md", "Orbit / notes.md"})
+            self.assertEqual(index.status(scope)[0], 2)
+            files = index.index_files(scope)
+            self.assertEqual(len(files), 2)
+            self.assertIn("5 seconds", index.index_passages(scope, files[0])[0].text)
+            self.assertEqual(index.index_passages(scope, roots[2] / ".copilot-knowledge/imports/notes.md"), [])
+
+            class SelectOrbit:
+                model = "test"
+
+                def generate(self, payload, _cancelled):
+                    evidence = json.loads(payload["messages"][-1]["content"])["sources"]
+                    return {"quotes": [e["id"] for e in evidence if e["source"].startswith("Orbit /")]}
+
+            card = Advisor(index, SelectOrbit(), requested=True)("What is the retry delay in Orbit?", [], scope)
+            self.assertEqual(len(card.sources), 1)
+            self.assertIn("9 seconds", card.options[0][0])
+            self.assertTrue(card.sources[0].path.is_relative_to(roots[1]))
+
     def test_browse_reads_only_indexed_passages_in_the_selected_project(self):
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory).resolve()

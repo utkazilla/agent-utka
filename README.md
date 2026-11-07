@@ -2,7 +2,7 @@
 
 <img src="assets/utka.png" alt="Agent Utka, a yellow rubber duck wearing black sunglasses" width="96">
 
-Agent Utka is a local AI assistant for technical calls on Windows. It transcribes what you hear on a call and answers questions about it using your project's code and documentation. Each supported answer includes a source excerpt, file name, and line number.
+Agent Utka is a local AI assistant for technical calls on Windows. It transcribes what you hear on a call and answers questions using the project summary you import. Each supported answer includes a source excerpt, file name, and line number.
 
 ## How it works
 
@@ -30,19 +30,24 @@ Select a project or import documents, then open **Settings → Knowledge base �
 
 1. On a Windows 10 or 11 x64 PC, download `Agent-Utka-Setup-…-x64.exe` from [Releases](https://github.com/utkazilla/agent-utka/releases/latest) and double-click it. Python is included.
 2. Open **Agent Utka** from Start. Choose **Download and start** to fetch the default Qwen speech and Ollama answer models. Allow about 6 GB of downloads and 12 GB of free disk space during setup. Models are stored on your PC. If you already run compatible local services, choose **Open app** and configure them under **Settings**.
-3. After launch, choose English, Russian, or Spanish from the flag menu. Git is optional and helps the app identify files to index in Git worktrees.
+3. After launch, choose English, Russian, or Spanish from the flag menu.
 
 [Windows tutorial](docs/tutorial.md#install-on-windows) · [Run from source](docs/tutorial.md#run-from-source)
 
 ### Try your first answer
 
-1. Under **Knowledge base**, use **Folder…** to select an empty folder, then **Import…** to add the [fictional Orbit knowledge pack](docs/examples/orbit-knowledge.md). Wait for **Ready**.
+1. Click **Import summary** and choose the [fictional Orbit knowledge pack](docs/examples/orbit-knowledge.md). Select **New base…**, keep the suggested name, and click **Import**. Wait for **Ready**.
 2. Play or synthesize the question “How long does the Orbit sync worker wait before retrying a temporary failure?” through the default Windows output. [Text-to-speech example](docs/tutorial.md#create-a-knowledge-base-and-try-an-answer)
 3. Select the question in the transcript and press **Ask**. The expected answer is **5 seconds**. Open **Sources** to see the supporting line.
 
 ## Use your own project
 
-Select a project folder with **Folder…** or import UTF-8 Markdown and text files into a dedicated knowledge base. For Git worktrees, the index considers tracked files and unignored working files. To prepare a knowledge pack, open **Settings → Copy prompt** and paste it into Codex or Claude Code in your project. Review the resulting `utka-cue-knowledge.md` before using it. The pack can include a glossary for project terminology and pronunciation. [Connect a project](docs/tutorial.md#connect-your-own-project) · [Knowledge pack prompt](docs/knowledge-pack-prompt.md)
+1. Click **Copy prompt** on the main screen and paste it into the Codex or Claude Code conversation where you worked on the project.
+2. Review the generated `utka-cue-knowledge.md`, then click **Import summary**, select that file, and choose an existing base or **New base…**.
+
+The prompt builds a detailed project reference from accessible conversation history, code, MR/PR changes and reviews, and connected documentation, with sources and explicit coverage gaps. Imported documents have no application-imposed size cap.
+
+You can add several summaries to one named base. Storage and indexing happen automatically. Choose a base on the main screen to search only its documents, or **All bases** to search across them. Combined search results and citations show the originating base. To update a summary, import it from the same original file location into the same base. The pack can include a glossary for terminology and pronunciation. [Connect a project](docs/tutorial.md#connect-your-own-project) · [Knowledge pack prompt](docs/knowledge-pack-prompt.md)
 
 ## Supported engines and services
 
@@ -52,7 +57,7 @@ Select a project folder with **Folder…** or import UTF-8 Markdown and text fil
 | Answers | Portable Ollama | An existing Ollama instance with cloud features disabled, or an OpenAI-compatible chat server with JSON Schema support |
 | Project search | SQLite FTS5 | A local search API that returns project-relative file paths and line numbers |
 
-Choose these components independently in **Settings**. Both model pickers have **Catalog** and **Installed** tabs. Search by model name, compare download sizes, and download models in the app. The speech catalog labels English-only variants. Restart Agent Utka after changing engines or models. [Provider configuration and API contracts](docs/tutorial.md#choose-speech-answer-and-search-modules)
+Choose these components independently in **Settings**. Both model pickers have **Catalog** and **Installed** tabs. Search by model name, compare download sizes, and download models in the app. The speech catalog labels English-only variants. Saving applies changes to the current session and closes the dialog. [Provider configuration and API contracts](docs/tutorial.md#choose-speech-answer-and-search-modules)
 
 ## Local data and troubleshooting
 

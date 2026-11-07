@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from copilot.configuration import load_settings, save_settings
+from copilot.speech_picker import SpeechPicker
 from copilot.whisper_install import WHISPER_MODELS, _Source, _run_worker, install_whisper, whisper_installed
 
 
@@ -66,6 +67,28 @@ class WhisperInstallationTests(unittest.TestCase):
         )
         self.assertIs(result, False)
         self.assertEqual(progress, [12])
+
+    def test_worker_reports_pip_file_progress_and_install_phase(self):
+        progress = []
+        result = _run_worker(
+            ["-c", "print('Progress 30 of 100\\nProgress 100 of 100\\n'"
+                   "'Progress 8 of 0\\nInstalling collected packages: test')"],
+            lambda: False, pip_progress=lambda *value: progress.append(value),
+        )
+        self.assertEqual(result, 0)
+        self.assertEqual(progress, [(30, 100), (100, 100), (8, 0), (None, None)])
+
+    def test_cuda_download_percentage_is_visible_in_speech_picker(self):
+        from unittest.mock import Mock
+        picker = SpeechPicker.__new__(SpeechPicker)
+        picker.language = "en"
+        picker.feedback = Mock()
+        picker.update_progress("qwen_cuda", 42, 100)
+        self.assertIn("PyTorch CUDA", picker.feedback.set.call_args.args[0])
+        self.assertIn("42%", picker.feedback.set.call_args.args[0])
+        picker.update_progress("qwen_transformers", 60, 100)
+        self.assertIn("Transformers", picker.feedback.set.call_args.args[0])
+        self.assertIn("60%", picker.feedback.set.call_args.args[0])
 
     def test_whisper_selection_is_separate_from_external_speech_model(self):
         with tempfile.TemporaryDirectory() as temp:

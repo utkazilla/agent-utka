@@ -108,6 +108,9 @@ from copilot.app import Overlay
 from copilot.bootstrap import setup_needed, setup_window
 from copilot.configuration import RUNTIME, load_settings
 from copilot.knowledge import Knowledge
+from copilot.knowledge import discover_projects
+from copilot.knowledge_pack import import_summary
+from copilot.knowledge_import import choose_import_destination
 from copilot.settings_window import show_settings
 from copilot.whisper_install import whisper_cuda_installed
 
@@ -136,6 +139,23 @@ try:
     window.update()
     assert window.winfo_viewable() and overlay.transcript.winfo_ismapped()
     assert not whisper_cuda_installed()
+    with tempfile.TemporaryDirectory(prefix='utka-large-import-') as folder:
+        base = Path(folder)
+        document = base / 'notes.md'
+        document.write_text('# Atlas\\n' + ('Project background.\\n' * 12000)
+                            + '\\n## Final decision\\nRelease name is SaffronHarbor.\\n', encoding='utf-8')
+        atlas = import_summary(base / 'runtime', document, name='Atlas')
+        document.write_text('# Orbit\\nOrbit retry delay is 9 seconds.', encoding='utf-8')
+        orbit = import_summary(base / 'runtime', document, name='Orbit')
+        index = Knowledge(base / 'index.sqlite', documents_only=True)
+        index.refresh(atlas)
+        index.refresh(orbit)
+        assert 'SaffronHarbor' in index.search(atlas, 'SaffronHarbor')[0].text
+        assert any(hit.path.is_relative_to(orbit) for hit in index.search((atlas, orbit), 'retry delay'))
+        overlay._projects(discover_projects(documents_only=True, managed=base / 'runtime/knowledge'))
+        assert len(overlay.bases) == 2
+        window.after(100, lambda: next(w for w in window.winfo_children() if isinstance(w, tk.Toplevel)).destroy())
+        assert choose_import_destination(overlay, document) is None
     for language, suffix, label in (
         ('en', '', 'Copy prompt'),
         ('ru', '.ru', 'Копировать промпт'),
@@ -146,7 +166,7 @@ try:
         popup = overlay.settings_window
         try:
             template = Path('docs', f'knowledge-pack-prompt{suffix}.md').read_text(encoding='utf-8')
-            with patch.object(popup, 'clipboard_clear'), patch.object(popup, 'clipboard_append') as copy:
+            with patch.object(window, 'clipboard_clear'), patch.object(window, 'clipboard_append') as copy:
                 assert invoke_button(popup, label), label
                 copy.assert_called_once_with(template)
             if language == 'en':

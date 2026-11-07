@@ -7,6 +7,20 @@ from copilot.suggest import Card, validate_options
 
 
 class HistoryTest(unittest.TestCase):
+    def test_all_base_answers_keep_their_sources_and_have_separate_history(self):
+        from copilot.history import History
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            atlas, orbit = parent / "Atlas", parent / "Orbit"
+            card = Card((("Nine seconds.", [1]),), (Source(orbit / "notes.md", 2, "Nine seconds."),),
+                        "Ответ из базы")
+            with History(parent / "history.sqlite") as history:
+                history.add((atlas, orbit), "Combined question", card)
+                history.add(atlas, "Atlas question", card)
+                self.assertEqual([e.text for e in history.recent((orbit, atlas))], ["Combined question"])
+                self.assertEqual(history.recent((atlas, orbit))[0].card.sources[0].path, orbit / "notes.md")
+                self.assertEqual([e.text for e in history.recent(atlas)], ["Atlas question"])
+
     def test_saved_cards_reopen_in_order_with_original_sources_and_project_scope(self):
         from copilot.history import History
         with tempfile.TemporaryDirectory() as tmp:

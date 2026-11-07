@@ -77,3 +77,16 @@ class FirstRunTests(unittest.TestCase):
             with self.assertRaisesRegex(OSError, "unsafe path"):
                 _unpack_ollama(archive, root / "target", lambda: False)
             self.assertFalse((root / "escape.exe").exists())
+
+    def test_ollama_extraction_reports_real_uncompressed_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "ollama.zip"
+            with ZipFile(archive, "w") as package:
+                package.writestr("ollama.exe", b"123")
+                package.writestr("library.dll", b"12345")
+            progress = Mock()
+            _unpack_ollama(archive, root / "target", lambda: False, progress)
+            self.assertEqual([c.args for c in progress.call_args_list], [
+                ("Extracting Ollama", 0, 8), ("Extracting Ollama", 3, 8), ("Extracting Ollama", 8, 8),
+            ])

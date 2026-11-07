@@ -12,11 +12,11 @@ from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 
-from .knowledge_pack import MAX_DOCUMENT_BYTES, PACK_FILENAMES, imported_documents, parse_pack
+from .knowledge_pack import MAX_DOCUMENT_BYTES, PACK_FILENAMES, imported_documents, is_workspace, parse_pack, summary_title
 
 
 REGISTRY = Path.home() / ".codex" / ".codex-global-state.json"
-INDEX_VERSION = 5
+INDEX_VERSION = 6
 SKIP = {".git", ".svn", ".codex", ".agents", ".aws", ".ssh", ".idea", ".vscode", ".venv",
         ".runtime", "node_modules", "__pycache__", "dist", "build", "target", "vendor",
         "obj", "bin", "coverage", "call copilot", "logs", "secrets", "credentials"}
@@ -46,10 +46,29 @@ class Source:
     text: str
 
 
-def discover_projects(registry=REGISTRY, extra=()):
+def scope_roots(scope):
+    values = scope if isinstance(scope, tuple) else (scope,) if scope is not None else ()
+    return tuple(dict.fromkeys(Path(root).resolve() for root in values))
+
+
+def source_location(scope, path):
+    path = Path(path)
+    owner = next((root for root in sorted(scope_roots(scope), key=lambda p: len(p.parts), reverse=True)
+                  if path.is_relative_to(root)), None)
+    if owner is None:
+        return path.name
+    relative = path.relative_to(owner)
+    if relative.parts[:2] == (".copilot-knowledge", "imports"):
+        relative = Path(*relative.parts[2:])
+    return (f"{summary_title(owner)} / {relative.as_posix()}" if isinstance(scope, tuple)
+            else relative.as_posix())
+
+
+def discover_projects(registry=REGISTRY, extra=(), *, documents_only=False, managed=None):
     items = []
     try:
-        local = json.loads(Path(registry).read_text(encoding="utf-8-sig")).get("local-projects", {})
+        local = {} if documents_only else json.loads(
+            Path(registry).read_text(encoding="utf-8-sig")).get("local-projects", {})
         for project in local.values():
             if isinstance(project, dict):
                 items.extend((project.get("name"), p) for p in project.get("rootPaths", [])
@@ -57,11 +76,20 @@ def discover_projects(registry=REGISTRY, extra=()):
     except (OSError, ValueError, AttributeError, TypeError):
         pass
     items.extend((None, p) for p in extra)
+    if managed is not None:
+        library = Path(managed)
+        if not library.is_symlink() and not library.is_junction():
+            try:
+                items.extend((summary_title(root), root) for root in library.iterdir()
+                             if not root.is_symlink() and not root.is_junction() and imported_documents(root))
+            except OSError:
+                pass
     result = {}
     for name, path in items:
         try:
             root = Path(path).expanduser().resolve()
-            if root.is_dir() and root != Path.home().resolve() and root.parent != root:
+            if (root.is_dir() and root != Path.home().resolve() and root.parent != root
+                    and (not documents_only or is_workspace(root))):
                 result.setdefault(root, Project(str(name or root.name), root))
         except (OSError, ValueError):
             pass
@@ -152,6 +180,27 @@ def _terms(text, *, query=False):
 
 def _chunks(text, *, compact=False):
     lines = text.splitlines()
+    block = 0
+    for number, line in enumerate(lines):
+        if len(line) <= 1600:
+            continue
+        for start, body in _chunk_lines(lines[block:number], compact=compact):
+            yield block + start, body
+        offset = 0
+        while offset < len(line):
+            end = min(offset + 1600, len(line))
+            if end < len(line):
+                boundary = line.rfind(" ", offset + 800, end)
+                if boundary != -1:
+                    end = boundary + 1
+            yield number + 1, line[offset:end]
+            offset = end
+        block = number + 1
+    for start, body in _chunk_lines(lines[block:], compact=compact):
+        yield block + start, body
+
+
+def _chunk_lines(lines, *, compact=False):
     cursor = 0
     line_limit, char_limit, overlap = (10, 760, 2) if compact else (22, 1150, 3)
     while cursor < len(lines):
@@ -164,7 +213,7 @@ def _chunks(text, *, compact=False):
                 break
             chars += len(lines[end]) + 1
             end += 1
-        chunk = "\n".join(lines[cursor:end])[:1600]
+        chunk = "\n".join(lines[cursor:end])
         if chunk.strip():
             yield cursor + 1, chunk
         if end >= len(lines):
@@ -204,7 +253,7 @@ def _term_set(text):
     return frozenset(_terms(text))
 
 
-def _ranking(rows, terms, aliases, exact_names, preferred, limit):
+def _ranking(rows, terms, aliases, exact_names, preferred, limit, *, deduplicate=True):
     candidates = []
     term_set = set(terms)
     for name, line, body, bm25 in rows:
@@ -240,7 +289,7 @@ def _ranking(rows, terms, aliases, exact_names, preferred, limit):
     for name, line, body, _, words, _, _ in sorted(candidates, key=score, reverse=True):
         if per_file.get(name, 0) >= 3:
             continue
-        if any(len(words & seen) >= .72 * len(words | seen) for seen in taken):
+        if deduplicate and any(len(words & seen) >= .72 * len(words | seen) for seen in taken):
             continue
         per_file[name] = per_file.get(name, 0) + 1
         out.append((name, line, body))
@@ -251,9 +300,10 @@ def _ranking(rows, terms, aliases, exact_names, preferred, limit):
 
 
 class Knowledge:
-    def __init__(self, path, *, retriever=None):
+    def __init__(self, path, *, retriever=None, documents_only=False):
         self.path = Path(path)
         self.retriever = retriever
+        self.documents_only = documents_only
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
@@ -283,7 +333,8 @@ class Knowledge:
             seen, edits = set(), []
             imported = set(imported_documents(root))
             root_packs = {root / name for name in PACK_FILENAMES}
-            for file in chain(_files(root), sorted(imported)):
+            files = sorted(imported) if self.documents_only else chain(_files(root), sorted(imported))
+            for file in files:
                 try:
                     if not _file_allowed(file, root):
                         continue
@@ -296,7 +347,7 @@ class Knowledge:
                     if old_version == (INDEX_VERSION,) and cached.get(name) == signature:
                         continue
                     body = (file.read_text(encoding="utf-8-sig", errors="strict")
-                            if 0 < info.st_size <= MAX_DOCUMENT_BYTES else "")
+                            if info.st_size > 0 and (file in imported or info.st_size <= MAX_DOCUMENT_BYTES) else "")
                     if "\x00" in body or PRIVATE_BODY.search(body):
                         body = ""
                     if file in imported or file in root_packs:
@@ -328,6 +379,10 @@ class Knowledge:
         return self.status(root)
 
     def status(self, root):
+        if isinstance(root, tuple):
+            statuses = [self.status(base) for base in scope_roots(root)]
+            return (sum(count for count, _ in statuses),
+                    min((stamp for _, stamp in statuses if stamp is not None), default=None))
         project = str(Path(root).resolve())
         with closing(self._connect()) as db:
             count = db.execute("SELECT count(*) FROM files WHERE project=? AND indexed=1",
@@ -336,12 +391,18 @@ class Knowledge:
         return count, stamp[0] if stamp else None
 
     def index_files(self, root):
+        if isinstance(root, tuple):
+            return [base / name for base in scope_roots(root) for name in self.index_files(base)]
         with closing(self._connect()) as db:
             return [row[0] for row in db.execute(
                 "SELECT path FROM files WHERE project=? AND indexed=1 ORDER BY path COLLATE NOCASE",
                 (str(Path(root).resolve()),))]
 
     def index_passages(self, root, name):
+        if isinstance(root, tuple):
+            path = Path(name)
+            owner = next((base for base in scope_roots(root) if path.is_relative_to(base)), None)
+            return self.index_passages(owner, str(path.relative_to(owner))) if owner else []
         root = Path(root).resolve()
         with closing(self._connect()) as db:
             rows = db.execute(
@@ -350,14 +411,26 @@ class Knowledge:
             return [Source(root / name, int(line), body) for line, body in rows]
 
     def search(self, root, query, limit=4):
+        if isinstance(root, tuple):
+            terms = list(dict.fromkeys(_terms(query, query=True)))[:24]
+            if not terms:
+                return []
+            rows, paths = [], {}
+            for base in scope_roots(root):
+                for rank, hit in enumerate(self.search(base, query, limit=max(8, limit)), 1):
+                    key = f"{summary_title(base)} / {hit.path.as_posix()}"
+                    paths[key] = hit.path
+                    rows.append((key, hit.line, hit.text, -1 / rank))
+            ranked = _ranking(rows, terms, [], set(), [], limit, deduplicate=False)
+            return [Source(paths[name], int(line), body) for name, line, body in ranked]
         root = Path(root).resolve()
         if self.retriever is not None:
             references = self.retriever.references(root, query, limit)
-            return self._referenced_sources(root, references, limit)
+            return self._referenced_sources(root, references, limit, query=query)
         terms = list(dict.fromkeys(_terms(query, query=True)))[:24]
         if not terms:
             return []
-        expansions, preferred = _search_profile(root, query)
+        expansions, preferred = ([], []) if self.documents_only else _search_profile(root, query)
         expansion = " ".join(expansions)
         aliases = [t for t in dict.fromkeys(_terms(expansion, query=True))
                    if t not in terms][:32]
@@ -380,7 +453,7 @@ class Knowledge:
             ranked = _ranking(rows, terms, aliases, exact_names, preferred, limit)
         return [Source(root / name, int(line), body) for name, line, body in ranked]
 
-    def _referenced_sources(self, root, references, limit):
+    def _referenced_sources(self, root, references, limit, *, query=""):
         references = [(str(Path(path)), line) for path, line in references]
         if not references:
             return []
@@ -393,13 +466,15 @@ class Knowledge:
                     "ORDER BY line DESC", (str(root), *names)):
                 passages[name].append((int(start), body))
         sources = []
+        terms = _term_set(query)
         for name, line in references:
-            for start, body in passages[name]:
-                if start <= line < start + body.count("\n") + 1:
-                    source = Source(root / name, start, body)
-                    if source not in sources:
-                        sources.append(source)
-                    break
+            matches = [(start, body) for start, body in passages[name]
+                       if start <= line < start + body.count("\n") + 1]
+            if matches:
+                start, body = max(matches, key=lambda row: len(terms & _term_set(row[1])))
+                source = Source(root / name, start, body)
+                if source not in sources:
+                    sources.append(source)
             if len(sources) >= limit:
                 break
         return sources

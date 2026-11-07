@@ -24,6 +24,12 @@ OLLAMA_URL = (
 OLLAMA_SIZE = 1_614_941_966
 OLLAMA_SHA256 = "9ca74a7ab66ec86870b1eecac7df160df08dc4e3a291ab5d2d59bcf9310221c6"
 BLOCK = 1024 * 1024
+PACKAGE_STEPS = {
+    "dependencies": "Preparing Faster Whisper",
+    "cuda": "Preparing cuBLAS and cuDNN for CUDA 12",
+    "qwen_cuda": "Preparing PyTorch CUDA for Qwen",
+    "qwen_transformers": "Preparing Transformers for Qwen",
+}
 
 
 class SetupCancelled(Exception):
@@ -53,11 +59,14 @@ def setup_needed(runtime, settings):
     return False
 
 
-def _unpack_ollama(archive, destination, cancelled):
+def _unpack_ollama(archive, destination, cancelled, progress=lambda *_: None):
     with ZipFile(archive) as package:
         entries = package.infolist()
-        if len(entries) > 10_000 or sum(item.file_size for item in entries) > 8 * 1024**3:
+        total = sum(item.file_size for item in entries)
+        if len(entries) > 10_000 or total > 8 * 1024**3:
             raise OSError("The Ollama archive exceeds the expected size.")
+        written = 0
+        progress("Extracting Ollama", written, total)
         for entry in entries:
             check_cancelled(cancelled)
             name = PurePosixPath(entry.filename)
@@ -74,6 +83,8 @@ def _unpack_ollama(archive, destination, cancelled):
                 while block := source.read(BLOCK):
                     check_cancelled(cancelled)
                     output.write(block)
+                    written += len(block)
+                    progress("Extracting Ollama", written, total)
 
 
 def _download_ollama(runtime, progress, cancelled):
@@ -99,9 +110,8 @@ def _download_ollama(runtime, progress, cancelled):
                 progress("Downloading Ollama", received, OLLAMA_SIZE)
         if received != OLLAMA_SIZE or digest.hexdigest() != OLLAMA_SHA256:
             raise OSError("The Ollama archive failed its SHA-256 check.")
-        progress("Extracting Ollama", None, None)
         staged = work / "ollama"
-        _unpack_ollama(archive, staged, cancelled)
+        _unpack_ollama(archive, staged, cancelled, progress)
         if not (staged / "ollama.exe").is_file():
             raise OSError("The Ollama archive is missing ollama.exe.")
         check_cancelled(cancelled)
@@ -133,16 +143,24 @@ def prepare_runtime(runtime, settings, progress, cancelled):
         engine = settings["stt_engine"]
         qwen_model = settings.get("qwen_model", DEFAULT_QWEN_MODEL)
         qwen_device = settings.get("qwen_device", "auto")
+
+        def speech_progress(stage, done, total):
+            step = PACKAGE_STEPS.get(stage)
+            if step:
+                if total:
+                    step += " · file download"
+            else:
+                name = "Qwen speech recognition" if engine == "qwen" else "Faster Whisper"
+                step = f"{'Checking' if stage == 'verify' else 'Downloading'} {name}"
+            progress(step, done, total)
+
         if engine == "qwen" and not qwen_installed(runtime, qwen_model, device=qwen_device):
-            if not install_qwen(runtime, lambda _, done, total: progress("Preparing Qwen speech recognition", done, total),
-                                cancelled, variant=qwen_model, device=qwen_device):
+            if not install_qwen(runtime, speech_progress, cancelled, variant=qwen_model, device=qwen_device):
                 return False
         elif engine == "whisper" and (not whisper_installed(runtime, settings["whisper_model"])
                                       or settings.get("whisper_device") == "cuda"):
-            if not install_whisper(runtime, settings["whisper_model"],
-                                   lambda stage, done, total: progress(
-                                       "Installing NVIDIA CUDA libraries" if stage == "cuda" else "Preparing Faster Whisper",
-                                       done, total), cancelled, device=settings.get("whisper_device", "auto")):
+            if not install_whisper(runtime, settings["whisper_model"], speech_progress, cancelled,
+                                   device=settings.get("whisper_device", "auto")):
                 return False
         check_cancelled(cancelled)
         if settings["llm_provider"] == "ollama":
@@ -152,7 +170,9 @@ def prepare_runtime(runtime, settings, progress, cancelled):
                 model = settings["ollama"]
                 progress("Checking local answer model", None, None)
                 if model not in brain.models() and not brain.pull(
-                    model, lambda _, done, total: progress(f"Downloading {model}", done, total), cancelled
+                    model, lambda _, done, total: progress(
+                        f"Downloading {model}" + (" · current layer" if total else ""), done, total
+                    ), cancelled
                 ):
                     return False
             finally:
@@ -237,8 +257,9 @@ def setup_window(window, settings):
                 if event == "progress":
                     if not stop.is_set():
                         step, done, total = value
-                        label.configure(text=step)
-                        bar.configure(value=min(100, 100 * done / total) if done is not None and total else 0)
+                        percent = min(100, 100 * done // total) if done is not None and total else None
+                        label.configure(text=step if percent is None else f"{step} {percent}%")
+                        bar.configure(value=0 if percent is None else percent)
                     continue
                 active = False
                 if event == "done" and value and not stop.is_set():
