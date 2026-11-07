@@ -12,7 +12,8 @@ from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 
-from .knowledge_pack import MAX_DOCUMENT_BYTES, PACK_FILENAMES, imported_documents, is_workspace, parse_pack, summary_title
+from .knowledge_pack import (MAX_DOCUMENT_BYTES, PACK_FILENAMES, imported_document_label,
+                             imported_documents, is_workspace, parse_pack, summary_title)
 
 
 REGISTRY = Path.home() / ".codex" / ".codex-global-state.json"
@@ -58,10 +59,11 @@ def source_location(scope, path):
     if owner is None:
         return path.name
     relative = path.relative_to(owner)
+    label = relative.as_posix()
     if relative.parts[:2] == (".copilot-knowledge", "imports"):
         relative = Path(*relative.parts[2:])
-    return (f"{summary_title(owner)} / {relative.as_posix()}" if isinstance(scope, tuple)
-            else relative.as_posix())
+        label = imported_document_label(owner, relative.as_posix())
+    return f"{summary_title(owner)} / {label}" if isinstance(scope, tuple) else label
 
 
 def discover_projects(registry=REGISTRY, extra=(), *, documents_only=False, managed=None):
@@ -90,7 +92,7 @@ def discover_projects(registry=REGISTRY, extra=(), *, documents_only=False, mana
             root = Path(path).expanduser().resolve()
             if (root.is_dir() and root != Path.home().resolve() and root.parent != root
                     and (not documents_only or is_workspace(root))):
-                result.setdefault(root, Project(str(name or root.name), root))
+                result.setdefault(root, Project(summary_title(root) if documents_only else str(name or root.name), root))
         except (OSError, ValueError):
             pass
     return sorted(result.values(), key=lambda p: (p.name.casefold(), str(p.root).casefold()))

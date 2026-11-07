@@ -33,6 +33,12 @@ def flag_images(master):
 
 
 OVERLAY_COPY = {
+    "Название выжимки": ("Document name", "Nombre del documento"),
+    "Название видно в источниках. Исходный файл не изменится.": (
+        "Shown in sources. The original file stays unchanged.",
+        "Se muestra en las fuentes. El archivo original no cambia."),
+    "Введи название выжимки — до 100 символов.": (
+        "Enter a document name, up to 100 characters.", "Escribe un nombre de documento de hasta 100 caracteres."),
     "Свой вопрос · Ctrl+Enter": ("Your question · Ctrl+Enter", "Tu pregunta · Ctrl+Enter"),
     "Спросить": ("Ask", "Preguntar"),
     "Напиши вопрос в поле.": ("Type a question in the field.", "Escribe una pregunta en el campo."),

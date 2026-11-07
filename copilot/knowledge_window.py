@@ -128,7 +128,7 @@ def show_knowledge_window(app, parent, index, root):
         display([])
         for number, value in enumerate(values, 1):
             label = (f"{number:02}  {source_location(root, value.path)}:{value.line}" if hits
-                     else source_location(root, value) if isinstance(root, tuple) else Path(value).as_posix())
+                     else source_location(root, value if isinstance(root, tuple) else root / value))
             key = tree.insert("", "end", values=(label,))
             rows[key] = value
         status.set(t("Найдено фрагментов · {count}" if hits else "Документов в индексе · {count}",

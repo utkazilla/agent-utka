@@ -570,7 +570,7 @@ class Overlay:
         destination = choose_import_destination(self, Path(path))
         if destination is None:
             return
-        target, name = destination
+        target, name, document_name = destination
         self.import_button.state(["disabled"])
         self.copy_prompt_button.state(["disabled"])
         self.import_target = self.project
@@ -578,7 +578,7 @@ class Overlay:
 
         def work():
             try:
-                root = import_summary(RUNTIME, path, target=target, name=name)
+                root = import_summary(RUNTIME, path, target=target, name=name, document_name=document_name)
                 self.ui.put(("import_done", (root, "")))
             except (OSError, ValueError) as error:
                 self.ui.put(("import_done", (None, str(error))))

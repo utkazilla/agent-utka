@@ -133,26 +133,57 @@ def _base_metadata(root):
             raise ValueError()
         data = json.loads(path.read_text(encoding="utf-8"))
         imports = data.get("imports", {})
+        titles = data.get("document_names", {})
         if (not isinstance(data.get("name"), str) or not isinstance(imports, dict)
                 or any(not isinstance(k, str) or not isinstance(v, str)
                        or Path(v).name != v or v.startswith(".") or re.search(r'[<>:"/\\|?*\x00-\x1f]', v)
                        for k, v in imports.items())
                 or len({v.casefold() for v in imports.values()}) != len(imports)):
             raise ValueError()
+        if (not isinstance(titles, dict)
+                or any(k not in imports.values() or not isinstance(v, str)
+                       or not v.strip() or len(v) > 100 for k, v in titles.items())):
+            raise ValueError()
         return data
     except (ValueError, AttributeError) as error:
         raise ValueError("Не удалось прочитать описание базы. Импорт отменён.") from error
 
 
-def import_summary(runtime, source, *, target=None, name=None):
+def _source_identity(source):
+    return hashlib.sha256(os.path.normcase(str(Path(source).expanduser().resolve())).encode("utf-8")).hexdigest()[:20]
+
+
+def import_title(root, source):
+    """Preserve the user's display title when the same source is imported again."""
+    if root is not None:
+        metadata = _base_metadata(root)
+        filename = metadata.get("imports", {}).get(_source_identity(source))
+        if title := metadata.get("document_names", {}).get(filename):
+            return title
+    return document_title(source)
+
+
+def imported_document_label(root, filename):
+    try:
+        title = _base_metadata(root).get("document_names", {}).get(filename)
+    except (OSError, ValueError):
+        title = None
+    return f"{title} ({filename})" if title else filename
+
+
+def import_summary(runtime, source, *, target=None, name=None, document_name=None):
     source = Path(source).expanduser().resolve()
     prepared = _prepare_documents([source])
-    identity = hashlib.sha256(os.path.normcase(str(source)).encode("utf-8")).hexdigest()[:20]
+    identity = _source_identity(source)
     library = Path(runtime) / "knowledge"
     if name is not None:
         name = " ".join(name.split())
         if not name or len(name) > 100:
             raise ValueError("Название базы должно содержать от 1 до 100 символов.")
+    if document_name is not None:
+        document_name = " ".join(document_name.split())
+        if not document_name or len(document_name) > 100:
+            raise ValueError("Название выжимки должно содержать от 1 до 100 символов.")
     if target is not None:
         root = Path(target)
         if not is_workspace(root):
@@ -164,6 +195,7 @@ def import_summary(runtime, source, *, target=None, name=None):
         raise ValueError("Папка базы знаний не может быть ссылкой.")
     metadata = _base_metadata(root)
     copies = dict(metadata.get("imports", {}))
+    titles = dict(metadata.get("document_names", {}))
     documents = imported_documents(root)
     if (not metadata and len(documents) == 1 and re.fullmatch(r"[0-9a-f]{20}", root.name)
             and root.parent.resolve() == library.resolve()):
@@ -177,6 +209,8 @@ def import_summary(runtime, source, *, target=None, name=None):
             filename = f"{source.stem} ({number}){source.suffix}"
             number += 1
         copies[identity] = filename
+    if document_name is not None:
+        titles[filename] = document_name
     title = metadata.get("name") or name or (summary_title(root) if imported_documents(root) else document_title(source))
     folder = _import_folder(create_workspace(root))
     temporary = None
@@ -184,7 +218,7 @@ def import_summary(runtime, source, *, target=None, name=None):
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder.parent,
                                          prefix=".base-", delete=False) as stream:
             temporary = Path(stream.name)
-            json.dump({"name": title, "imports": copies}, stream, ensure_ascii=False)
+            json.dump({"name": title, "imports": copies, "document_names": titles}, stream, ensure_ascii=False)
         os.replace(temporary, folder.parent / "base.json")
     finally:
         if temporary is not None:

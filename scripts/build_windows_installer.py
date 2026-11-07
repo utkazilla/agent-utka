@@ -156,6 +156,37 @@ try:
         assert len(overlay.bases) == 2
         window.after(100, lambda: next(w for w in window.winfo_children() if isinstance(w, tk.Toplevel)).destroy())
         assert choose_import_destination(overlay, document) is None
+        overlay.project = atlas
+
+        def import_dialog_test(create_new):
+            errors = []
+            def fill():
+                popup = next(w for w in window.winfo_children() if isinstance(w, tk.Toplevel))
+                try:
+                    entries = {child.winfo_name(): child for child in descendants(popup)
+                               if isinstance(child, ttk.Entry) and not isinstance(child, ttk.Combobox)}
+                    title = entries['document_name']
+                    title.delete(0, 'end')
+                    confirm = next(child for child in descendants(popup)
+                                   if isinstance(child, ttk.Button)
+                                   and child.cget('text') == overlay._tr('Импортировать'))
+                    assert confirm.instate(['disabled'])
+                    title.insert(0, 'Release decisions')
+                    if create_new:
+                        assert invoke_button(popup, overlay._tr('Новая база…'))
+                        entries['name'].delete(0, 'end')
+                        entries['name'].insert(0, 'Voyager')
+                    confirm.invoke()
+                except Exception as error:
+                    errors.append(error)
+                    popup.destroy()
+            window.after(100, fill)
+            choice = choose_import_destination(overlay, document)
+            assert not errors, errors
+            assert choice == ((None, 'Voyager', 'Release decisions') if create_new
+                              else (atlas, None, 'Release decisions')), choice
+        import_dialog_test(False)
+        import_dialog_test(True)
     for language, suffix, label in (
         ('en', '', 'Copy prompt'),
         ('ru', '.ru', 'Копировать промпт'),

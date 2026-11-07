@@ -7,8 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from copilot.asr_glossary import project_asr_glossary
-from copilot.knowledge import Knowledge, discover_projects
-from copilot.knowledge_pack import PACK_FENCE, PACK_FILENAME, create_workspace, import_documents, import_summary
+from copilot.knowledge import Knowledge, discover_projects, source_location
+from copilot.knowledge_pack import PACK_FENCE, PACK_FILENAME, create_workspace, import_documents, import_summary, import_title
 
 
 def pack(text, term, heard, *, fence=PACK_FENCE, **rule):
@@ -18,6 +18,50 @@ def pack(text, term, heard, *, fence=PACK_FENCE, **rule):
 
 
 class KnowledgePackTest(unittest.TestCase):
+    def test_document_name_changes_without_renaming_source_or_losing_update_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / "export.md"
+            original = "# Original heading\n\nOranges grow in the northern orchard.\n"
+            source.write_text(original, encoding="utf-8")
+            root = import_summary(base / "runtime", source, name="Atlas", document_name="Architecture")
+            index = Knowledge(base / "index.sqlite", documents_only=True)
+            index.refresh(root)
+            hit = index.search(root, "Oranges")[0]
+            self.assertEqual(source_location(root, hit.path), "Architecture (export.md)")
+            self.assertEqual(source_location((root,), hit.path), "Atlas / Architecture (export.md)")
+            self.assertEqual(source.read_text(encoding="utf-8"), original)
+            source.write_text("# Original heading\n\nPears grow in the east.\n", encoding="utf-8")
+            import_summary(base / "runtime", source, target=root)
+            self.assertEqual(index.refresh(root)[0], 1)
+            self.assertFalse(index.search(root, "Oranges"))
+            self.assertEqual(source_location(root, index.search(root, "Pears")[0].path),
+                             "Architecture (export.md)")
+            import_summary(base / "runtime", source, target=root, document_name="Decisions")
+            self.assertEqual(index.refresh(root)[0], 1)
+            self.assertEqual(source_location(root, hit.path), "Decisions (export.md)")
+            self.assertEqual(import_title(root, source), "Decisions")
+
+    def test_legacy_folder_uses_knowledge_title_instead_of_directory_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "Old App Name"
+            source = base / "notes.md"
+            source.write_text("# Atlas knowledge\n\nOranges grow here.", encoding="utf-8")
+            import_documents(root, [source])
+            projects = discover_projects(extra=[str(root)], documents_only=True)
+            self.assertEqual([(p.name, p.root) for p in projects], [("Atlas knowledge", root)])
+
+    def test_invalid_document_name_does_not_create_a_base(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / "notes.md"
+            source.write_text("A useful fact.", encoding="utf-8")
+            for name in (" ", "x" * 101):
+                with self.assertRaises(ValueError):
+                    import_summary(base / "runtime", source, name="Atlas", document_name=name)
+            self.assertFalse((base / "runtime/knowledge").exists())
+
     def test_large_import_indexes_its_end_and_preserves_a_large_glossary(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

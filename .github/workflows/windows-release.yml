@@ -87,6 +87,8 @@ jobs:
           Download and double-click the **Agent-Utka-Setup** Windows x64 executable below on Windows 10 or 11. Python is included; no terminal or separate Python installation is required.
 
           ### What's new
+          - **Name each summary during import.** Document names and knowledge-base names are separate. An explicit New base button creates a destination; Sources and the knowledge browser show the chosen document name. Reimporting the same original file preserves or updates that name without duplicates.
+          - **Legacy base labels fixed.** Old imported bases use their knowledge title instead of the name of their storage folder.
           - **Copy prompt → Import summary** on the main screen. Pick an existing named knowledge base or create one without choosing a storage folder.
           - **Multiple documents per base.** Reimporting the same original file into the same base updates its copy. Different files with identical names stay separate.
           - **All bases search.** Search one base or all imported bases. Citations and the knowledge browser retain the originating base.
