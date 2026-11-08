@@ -36,9 +36,9 @@ OVERLAY_COPY = {
     "Импорт файла…": ("Import a file…", "Importar archivo…"),
     "Добавить файл в базу": ("Add file to knowledge base", "Añadir archivo a la base"),
     "Изменить название выжимки…": ("Edit document name…", "Editar nombre del documento…"),
-    "Добавь файл .md или .txt. Если файла нет, скопируй промпт в чат проекта в Codex или Claude Code.": (
-        "Add an .md or .txt file. To create one, copy the prompt into your project chat in Codex or Claude Code.",
-        "Añade un archivo .md o .txt. Para crearlo, copia el prompt en el chat del proyecto en Codex o Claude Code."),
+    "Добавь .md или .txt. Если файла нет, скопируй промпт в Codex или Claude Code.": (
+        "Add an .md or .txt file, or copy the prompt into Codex or Claude Code.",
+        "Añade un .md o .txt, o copia el prompt en Codex o Claude Code."),
     "Создай базу или импортируй готовую выжимку. Промпт поможет собрать знания.": (
         "Create a base or import a summary. Use the prompt to gather knowledge.",
         "Crea una base o importa un resumen. Usa el prompt para reunir conocimientos."),

@@ -29,6 +29,7 @@ BG, SURFACE, BORDER = "#181b19", "#222622", "#383f39"
 INK, MUTED, ACCENT = "#f3f5f1", "#b1bbb2", "#a9c9b6"
 ACTION, ACTION_HOVER = "#a9c9b6", "#c1dccb"
 WIDTH = 474
+EMPTY_KNOWLEDGE_HELP = "Добавь .md или .txt. Если файла нет, скопируй промпт в Codex или Claude Code."
 LOG = logging.getLogger("call_copilot")
 
 
@@ -71,7 +72,7 @@ class Overlay:
         self.index = None if demo else self._create_index(settings)
         self.status = self._copy_var("Подготовка локальных моделей…")
         self.project_label = tk.StringVar()
-        self.index_status = self._copy_var("")
+        self.index_status = self._copy_var(EMPTY_KNOWLEDGE_HELP)
         self.listen_label = self._copy_var("Пауза")
         self.answer_status = self._copy_var("")
         self.selection_status = self._copy_var("Речь появится в расшифровке")
@@ -311,12 +312,7 @@ class Overlay:
                                               localized=True)
         self.copy_prompt_button.pack(side="left", fill="x", expand=True)
         self.browse_button = self._button(row, "Открыть базу", self._browse_knowledge, localized=True)
-        self.first_import_hint = self._label(
-            base, "Добавь файл .md или .txt. Если файла нет, скопируй промпт в чат проекта в Codex или Claude Code.",
-            color=MUTED, size=9, localized=True)
-        self.first_import_hint.pack(fill="x", pady=(6, 0))
         state_row = tk.Frame(base, bg=BG)
-        self.base_status_row = state_row
         state_row.pack(fill="x", pady=(4, 0))
         self.pin_button = self._button(state_row, "", self._pin)
         self.pin_button.pack(side="right")
@@ -422,7 +418,7 @@ class Overlay:
         self._update_overlay_controls()
         self._render_selection()
         w.update_idletasks()
-        self.expanded_min_height = panel.winfo_reqheight()
+        self.expanded_min_height = min(panel.winfo_reqheight(), w.maxsize()[1])
         w.minsize(WIDTH, self.expanded_min_height)
         w.geometry(f"{WIDTH}x{self.expanded_min_height}")
 
@@ -533,18 +529,10 @@ class Overlay:
         self.project_label.set(current or self._tr("База не выбрана"))
         if self.projects.get(current) != self.project:
             self._select()
-        self._update_knowledge_entry()
-
-    def _update_knowledge_entry(self):
         if self.project is None:
             self.browse_button.pack_forget()
         elif not self.browse_button.winfo_manager():
             self.browse_button.pack(side="left", padx=(6, 0))
-        if self.project is None or self.indexed_count == 0:
-            if not self.first_import_hint.winfo_manager():
-                self.first_import_hint.pack(fill="x", pady=(6, 0), before=self.base_status_row)
-        else:
-            self.first_import_hint.pack_forget()
 
     def _select(self, _event=None):
         selected = self.projects.get(self.project_label.get())
@@ -565,8 +553,7 @@ class Overlay:
         self._close_sources()
         self._set_copy(self.answer_status, "")
         self._load_history()
-        self._set_copy(self.index_status, "Подготавливаю базу…")
-        self._update_knowledge_entry()
+        self._set_copy(self.index_status, EMPTY_KNOWLEDGE_HELP if selected is None else "Подготавливаю базу…")
         self._selection_changed()
         self.scan.set()
 
@@ -1022,11 +1009,10 @@ class Overlay:
                       and data[2] == self.project != self.import_target):
                     _, _, _, count, _ = data
                     self.indexed_count = count
-                    self._update_knowledge_entry()
                     if count:
                         self._set_copy(self.index_status, "Готово · напиши вопрос или выдели реплику в расшифровке.")
                     else:
-                        self._set_copy(self.index_status, "Импортируй выжимку, чтобы получать ответы.")
+                        self._set_copy(self.index_status, EMPTY_KNOWLEDGE_HELP)
                 elif (kind == "index_error" and data[0] is self.index_generation and data[1] is self.index
                       and data[2] == self.project != self.import_target):
                     self._set_copy(self.index_status, "Ошибка обновления: {error}", error=data[3])

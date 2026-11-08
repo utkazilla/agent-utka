@@ -104,7 +104,7 @@ from pathlib import Path
 from tkinter import ttk
 from unittest.mock import patch
 import av, numpy, pyaudiowpatch, sherpa_onnx, Stemmer, webrtcvad
-from copilot.app import Overlay
+from copilot.app import EMPTY_KNOWLEDGE_HELP, Overlay
 from copilot.bootstrap import setup_needed, setup_window
 from copilot.configuration import RUNTIME, load_settings, save_settings
 from copilot.knowledge import Knowledge
@@ -148,7 +148,7 @@ try:
         assert not any(isinstance(child, tk.Toplevel) for child in window.winfo_children())
         assert overlay.new_base_button.winfo_ismapped()
         window.update_idletasks()
-        assert overlay.first_import_hint.winfo_ismapped()
+        assert overlay.index_status.get() == overlay._tr(EMPTY_KNOWLEDGE_HELP)
         assert not overlay.browse_button.winfo_ismapped()
         errors = []
 
