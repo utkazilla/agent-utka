@@ -1,4 +1,5 @@
 import json
+import io
 import tempfile
 import threading
 import unittest
@@ -9,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from copilot.asr_glossary import project_asr_glossary
 from copilot.app import Overlay
-from copilot.brains import LocalChatCompletions, create_brain, local_api_url
+from copilot.brains import LocalChatCompletions, OpenAIError, create_brain, local_api_url
 from copilot.configuration import DEFAULTS, index_path, load_settings, save_settings
 from copilot.knowledge import Knowledge, discover_projects
 from copilot.knowledge_pack import create_workspace, import_documents
@@ -17,6 +18,40 @@ from copilot.suggest import Advisor
 
 
 class ConfigurationTest(unittest.TestCase):
+    def test_openai_provider_sends_only_answer_input_to_official_responses_endpoint(self):
+        settings = {**DEFAULTS, "llm_provider": "openai", "openai_key_protected": "encrypted"}
+        brain = create_brain(Path("."), settings)
+        reply = {"status": "completed", "output": [{"type": "message", "content": [
+            {"type": "output_text", "text": '{"supported":[1]}'},
+        ]}]}
+        payload = {"messages": [{"role": "user", "content": "synthetic question and excerpt"}],
+                   "format": {"type": "object", "properties": {"supported": {"type": "array",
+                              "items": {"type": "integer"}}}, "required": ["supported"]},
+                   "options": {"num_predict": 55}}
+        with (patch("copilot.brains.unprotect_key", return_value="test-secret"),
+              patch.object(brain.opener, "open", return_value=io.BytesIO(json.dumps(reply).encode())) as call):
+            self.assertEqual(brain.generate(payload, lambda: False), {"supported": [1]})
+            request = call.call_args.args[0]
+            body = json.loads(request.data)
+            self.assertEqual(request.full_url, "https://api.openai.com/v1/responses")
+            self.assertEqual(request.get_header("Authorization"), "Bearer test-secret")
+            self.assertNotIn("test-secret", request.data.decode())
+            self.assertEqual(body["input"], payload["messages"])
+            self.assertFalse(body["store"])
+            self.assertFalse(body["text"]["format"]["schema"]["additionalProperties"])
+            self.assertNotIn("reasoning", body)
+            call.reset_mock()
+            self.assertEqual(brain.generate(payload, lambda: True), {})
+            call.assert_not_called()
+
+        error = HTTPError("https://api.openai.com/v1/models/gpt-4o", 401,
+                          "test-secret", None, io.BytesIO(b"test-secret"))
+        with (patch("copilot.brains.unprotect_key", return_value="test-secret"),
+              patch.object(brain.opener, "open", side_effect=error)):
+            with self.assertRaisesRegex(OpenAIError, r"401") as caught:
+                brain.warm()
+            self.assertNotIn("test-secret", str(caught.exception))
+
     def test_app_knowledge_uses_imports_without_reading_codex_projects_or_git(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

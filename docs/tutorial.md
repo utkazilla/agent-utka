@@ -65,7 +65,17 @@ The selector on the main screen controls where answers are searched: one named b
 
 In the import dialog, **Add to knowledge base** chooses the destination when there are existing bases. Select **New base…** to enter a base name. **Edit document name…** controls how the document appears in sources and the knowledge browser. **All bases** is a search scope. To rename an existing summary, reimport the same original file into the same base and use **Edit document name…**. The existing document is updated and the original file stays unchanged.
 
+The project prompt creates an **Utka glossary** with short definitions and sources. For a direct question like “What is LDT?”, Agent Utka looks up the term in the selected base. Different meanings are shown separately with their sources. A missing definition for a standalone term produces a no-answer message. Refresh the project summary as a whole to add new terms.
+
 To ask without speech, type or paste into **Your question** on the main screen. Click **Ask** beside that field or press **Ctrl+Enter** inside it; Enter inserts a new line. Typed questions use the selected base or **All bases**, and their answers appear in the same history with sources. Your draft stays available for editing and incoming speech does not change it.
+
+Agent Utka opens the section around each promising match and may search again with more specific keywords when it cannot verify a complete answer. **Sources** shows the passages that support the answer. It searches the files you imported; a link inside a summary does not grant access to an external document.
+
+In **Settings → Answers**, choose **OpenAI API · cloud**, select `gpt-4o` or enter another model ID, then add your API key. Windows encrypts the saved key. Agent Utka searches the selected knowledge base on this computer and sends the question and matching excerpts to OpenAI for an answer.
+
+The selector next to the transcript heading switches between **On request** and **Automatic**. Automatic mode starts a search when Agent Utka detects a question in speech. When OpenAI is selected, the recognized question and matching excerpts go to the API. The manual ask buttons work in both modes.
+
+**Settings → Knowledge base → SQLite + semantic search** can also find passages that use different wording. This mode uses `qwen3-embedding:0.6b` if it is already installed on the Ollama server used for answers. While no semantic index is available, Agent Utka uses SQLite keyword search.
 
 Import an updated version from the same original file location into the same base to replace that document. Different source files remain separate even when their filenames match. Imported copies are stored under `.runtime/knowledge`, and the search index is `.runtime/agent-utka-imports.sqlite`. Storage is managed automatically. Advanced users can change the index location in Settings.
 

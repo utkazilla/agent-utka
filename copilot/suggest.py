@@ -4,8 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import URLError
 
+from .brains import OpenAIError
 from .knowledge import Source, _term_set, _terms, search_aliases, scope_roots, source_location
+from .knowledge_pack import definition_term
 from .ollama_library import CONTEXT_SIZE, LocalOllama as LocalOllama
+from .retrieval import SearchUnavailable
+from .source_answers import answer_from_sources
 
 
 MAX_OPTIONS = 3
@@ -15,8 +19,9 @@ ANSWER_ORDER = (*PREVIEW_FIELDS, "spoken", "explained", "clarification", "takeaw
 PREVIEW_PREFIX = re.compile(r'\A\s*(\{\s*"short"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*"sources"\s*:\s*\[[^\]]*\])')
 YEARS = re.compile(r"\b(?:19|20)\d{2}\b")
 QUESTION_START = re.compile(
-    r"^(?:как|какой|какая|сколько|кто|где|почему|зачем|когда|что|"
-    r"how|what|which|where|when|why|does|do|can|is|are|will)\b", re.I)
+    r"^(?:а\s+)?(?:как(?!\s+правило\b)|како[йе]|какая|какие|сколько|кто|где|почему|зачем|когда|что|"
+    r"how|what|which|where|when|why|does|do|can|is|are|will|"
+    r"cómo|qué|cuál|cuáles|dónde|cuándo|quién|cuánto|puede)\b", re.I)
 QUESTION_FOCUS = (
     (r"^какие\b.*\b(?:возвращает|показывает)\b", "List the relevant categories and any limit on their count."),
     (r"\b(?:несовпадени\w*|не совпада\w*|mismatch)\b",
@@ -53,6 +58,11 @@ class Card:
     options: tuple
     sources: tuple
     label: str
+
+
+def is_question(text):
+    text = text.strip()
+    return text.startswith("¿") or text.endswith("?") or bool(QUESTION_START.match(text))
 
 
 NO_EVIDENCE = Card((("По этому фрагменту не нашёл подтверждённого ответа.", []),),
@@ -215,7 +225,40 @@ class Advisor:
         return Card(((text, list(range(1, len(selected) + 1))),), selected, "Ответ из базы")
 
     def __call__(self, text, context, root, cancelled=lambda: False, preview=None):
+        if self.requested and root and hasattr(self.index, "definitions") and (term := definition_term(text)):
+            if cancelled():
+                return NO_EVIDENCE
+            definitions = self.index.definitions(root, term)
+            if cancelled():
+                return NO_EVIDENCE
+            if definitions:
+                options = tuple(((f"{source_location(root, source.path)}\n" if len(definitions) > 1 else "")
+                                 + source.text.strip(), [number])
+                                for number, source in enumerate(definitions, 1))
+                return Card(options, tuple(definitions), "Ответ из базы")
+            # A bare symbol with no explanation is not answered by a matching code excerpt.
+            if len(term.split()) == 1:
+                return NO_EVIDENCE
         query = " ".join([text, *context])
+        if self.requested and root and getattr(self.index, "documents_only", False):
+            try:
+                claims, evidence, incomplete = answer_from_sources(
+                    self.index, self.ollama, root, text, context, cancelled)
+            except SearchUnavailable:
+                raise
+            except OpenAIError as error:
+                return Card(((str(error), []),), (), "Ошибка ответа")
+            except (OSError, ValueError, RuntimeError):
+                return Card((("Локальная модель подсказок недоступна.", []),), (), "Ошибка ответа")
+            if not claims or cancelled():
+                return NO_EVIDENCE
+            refs = list(dict.fromkeys(i for claim in claims for i in claim["sources"]))
+            numbers = {ref: n for n, ref in enumerate(refs, 1)}
+            answer = "\n".join(
+                claim["text"] + (" [" + ", ".join(str(numbers[i]) for i in claim["sources"]) + "]"
+                                 if len(claims) > 1 else "") for claim in claims)
+            return Card(((answer, list(numbers.values())),), tuple(evidence[i - 1] for i in refs),
+                        "Частичный ответ из базы" if incomplete else "Ответ из базы")
         hits = self.index.search(root, query, limit=10 if self.requested else 8) if root else []
         if self.requested and not hits:
             return NO_EVIDENCE
@@ -264,7 +307,7 @@ class Advisor:
         options = _read_phrasings(answer, len(hits)) or draft
         clarification = _short(answer.get("clarification")) if isinstance(answer, dict) else ""
         takeaway = _short(answer.get("takeaway")) if isinstance(answer, dict) else ""
-        needs_answer = text.rstrip().endswith("?") or bool(QUESTION_START.match(text.lstrip()))
+        needs_answer = is_question(text)
         if hits and len(options) < MAX_OPTIONS and not cancelled() and (
                 options or (needs_answer and not clarification and not takeaway)):
             retry = {

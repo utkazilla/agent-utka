@@ -7,7 +7,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from .bootstrap import download_answer_model
-from .brains import BRAIN_PROVIDERS, create_brain, local_api_url, local_ollama_url
+from .brains import BRAIN_PROVIDERS, OPENAI_MODELS, create_brain, local_api_url, local_ollama_url, openai_model_id
 from .configuration import RUNTIME
 from .hardware import read_vram
 from .i18n import translate
@@ -18,9 +18,22 @@ from .retrieval import RETRIEVAL_PROVIDERS, local_search_url
 from .speech import ASR_ENGINES, QWEN_ASR_MODELS
 from .speech_picker import show_speech_picker
 from .whisper_install import WHISPER_DEVICES
+from .windows_secrets import protect_key
 
 
 COPY = {
+    "OpenAI API · облако": ("OpenAI API · cloud", "OpenAI API · nube"),
+    "Ключ OpenAI API": ("OpenAI API key", "Clave de OpenAI API"),
+    "Вставить ключ": ("Paste key", "Pegar clave"),
+    "Ключ сохранён. Введи новый, чтобы заменить его.": (
+        "Key saved. Enter a new key to replace it.", "Clave guardada. Introduce otra para reemplazarla."),
+    "OpenAI получает вопрос и найденные фрагменты. В авторежиме отправляются распознанные вопросы.": (
+        "OpenAI receives the question and matching excerpts. In automatic mode, recognized questions are sent.",
+        "OpenAI recibe la pregunta y los fragmentos encontrados. En modo automático se envían las preguntas reconocidas."),
+    "Добавь ключ OpenAI API в настройках.": (
+        "Add your OpenAI API key in Settings.", "Añade tu clave de OpenAI API en Configuración."),
+    "Укажи корректный ID модели OpenAI.": (
+        "Enter a valid OpenAI model ID.", "Introduce un ID de modelo de OpenAI válido."),
     "Ответы": ("Answers", "Respuestas"),
     "Выбрать модель…": ("Choose model…", "Elegir modelo…"),
     "Выбрана {model}.": (
@@ -33,6 +46,7 @@ COPY = {
     "Ollama · установленный": ("Ollama · existing server", "Ollama · servidor existente"),
     "Поиск по проекту": ("Project search", "Búsqueda del proyecto"),
     "SQLite · встроенный": ("SQLite · built-in", "SQLite · integrado"),
+    "SQLite + поиск по смыслу": ("SQLite + semantic search", "SQLite + búsqueda semántica"),
     "Локальный API поиска": ("Local search API", "API de búsqueda local"),
     "Адрес API поиска": ("Search API address", "Dirección de la API de búsqueda"),
     "Укажи локальный адрес поиска вида http://127.0.0.1:8090/search.": (
@@ -261,9 +275,13 @@ def show_settings(app):
     vram_reading = None
     measured_server = None
     unloading = False
-    model_keys = {"ollama": "ollama", "ollama_local": "ollama_model", "openai_local": "llm_model"}
+    model_keys = {"ollama": "ollama", "ollama_local": "ollama_model", "openai_local": "llm_model",
+                  "openai": "openai_model"}
     models = {key: settings[model_keys[key]] for key in BRAIN_PROVIDERS}
-    urls = {"ollama": "", "ollama_local": settings["ollama_url"], "openai_local": settings["llm_url"]}
+    urls = {"ollama": "", "ollama_local": settings["ollama_url"], "openai_local": settings["llm_url"],
+            "openai": ""}
+    saved_mask = "••••••••••••"
+    openai_key = tk.StringVar(value=saved_mask if settings.get("openai_key_protected") else "")
     selected_provider = settings["llm_provider"] if settings["llm_provider"] in models else "ollama"
     selected_stt = settings["stt_engine"] if settings["stt_engine"] in ASR_ENGINES else "qwen"
     builtin_stt = selected_stt if selected_stt != "openai_local" else settings.get("stt_builtin_engine", "qwen")
@@ -331,6 +349,22 @@ def show_settings(app):
     row = field(model_section, "Модель ответов", 3)
     model_box = combo(row, model, state="normal")
     selected_model_label = app._label(row, var=model, bg=surface, size=9, wrap=240)
+    key_row = field(model_section, "Ключ OpenAI API", 4)
+    key_entry = ttk.Entry(key_row, textvariable=openai_key, show="*", style="Copilot.Settings.TEntry")
+    key_entry.pack(side="left", fill="x", expand=True)
+
+    def select_saved_mask(_event):
+        if openai_key.get() == saved_mask:
+            key_entry.selection_range(0, "end")
+
+    key_entry.bind("<FocusIn>", select_saved_mask)
+    cloud_note = label(model_section,
+                       "OpenAI получает вопрос и найденные фрагменты. В авторежиме отправляются распознанные вопросы.",
+                       bg=surface, color=muted, size=9, wrap=490)
+    cloud_note.grid(row=5, column=0, columnspan=2, sticky="w", pady=(3, 0))
+    if settings.get("openai_key_protected"):
+        label(key_row, "Ключ сохранён. Введи новый, чтобы заменить его.",
+              bg=surface, color=muted, size=9, wrap=160).pack(side="left", padx=(6, 0))
     gpu_row = tk.Frame(model_section, bg=surface)
     gpu_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 0))
     app._label(gpu_row, var=current_answer, color=muted, bg=surface, size=9, wrap=500).pack(fill="x")
@@ -409,7 +443,10 @@ def show_settings(app):
         set_field_visible(stt_model_row, selected_stt == "openai_local")
         set_field_visible(builtin_speech_row, selected_stt != "openai_local")
         builtin_model.set(speech_name())
-        set_field_visible(address_row, selected_provider != "ollama")
+        set_field_visible(address_row, selected_provider in ("ollama_local", "openai_local"))
+        cloud = selected_provider == "openai"
+        set_field_visible(key_row, cloud)
+        cloud_note.grid() if cloud else cloud_note.grid_remove()
         set_field_visible(search_address, selected_retrieval == "http_local")
         for widget in (model_box, list_button, selected_model_label, choose_model_button):
             widget.pack_forget()
@@ -417,7 +454,10 @@ def show_settings(app):
             choose_model_button.pack(side="right")
             selected_model_label.pack(side="left", fill="x", expand=True)
         else:
-            list_button.pack(side="right", padx=(5, 0))
+            if cloud:
+                model_box["values"] = OPENAI_MODELS
+            else:
+                list_button.pack(side="right", padx=(5, 0))
             model_box.pack(side="left", fill="x", expand=True)
         resize_to_form()
 
@@ -701,6 +741,14 @@ def show_settings(app):
             refresh_vram(unload=name)
 
     list_button = button(model_box.master, "Список", fetch_compatible_models)
+    def paste_key():
+        try:
+            openai_key.set(popup.clipboard_get().strip())
+        except tk.TclError:
+            pass
+        key_entry.focus_set()
+
+    button(key_row, "Вставить ключ", paste_key).pack(side="right", padx=(6, 0))
     choose_model_button = button(model_box.master, "Выбрать модель…", choose_ollama_model, primary=True)
     button(builtin_speech_row, "Выбрать модель…", choose_speech_model, primary=True).pack(side="right")
     speech_unload = button(speech_status_row, "Выгрузить модель", unload_speech)
@@ -729,6 +777,15 @@ def show_settings(app):
                 updates["rag_url"] = local_search_url(rag_url.get())
             if selected_provider == "openai_local":
                 updates.update(llm_url=local_api_url(endpoint.get()), llm_model=name)
+            elif selected_provider == "openai":
+                updates["openai_model"] = openai_model_id(name)
+                key = openai_key.get().strip()
+                if key and key != saved_mask:
+                    if not key.isascii() or any(char.isspace() for char in key):
+                        raise ValueError("Вставь ключ OpenAI API целиком, без пробелов.")
+                    updates["openai_key_protected"] = protect_key(key)
+                elif not settings.get("openai_key_protected"):
+                    raise ValueError("Добавь ключ OpenAI API в настройках.")
             else:
                 updates[model_keys[selected_provider]] = validate_ollama_model(name)
                 if selected_provider == "ollama_local":

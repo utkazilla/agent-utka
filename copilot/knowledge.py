@@ -12,12 +12,13 @@ from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 
-from .knowledge_pack import (MAX_DOCUMENT_BYTES, PACK_FILENAMES, imported_document_label,
-                             imported_documents, is_workspace, parse_pack, summary_title)
+from .knowledge_pack import (MAX_DOCUMENT_BYTES, PACK_FILENAMES, glossary_definitions,
+                             imported_document_label, imported_documents, is_workspace,
+                             parse_pack, summary_title, term_key)
 
 
 REGISTRY = Path.home() / ".codex" / ".codex-global-state.json"
-INDEX_VERSION = 6
+INDEX_VERSION = 7
 SKIP = {".git", ".svn", ".codex", ".agents", ".aws", ".ssh", ".idea", ".vscode", ".venv",
         ".runtime", "node_modules", "__pycache__", "dist", "build", "target", "vendor",
         "obj", "bin", "coverage", "call copilot", "logs", "secrets", "credentials"}
@@ -320,6 +321,10 @@ class Knowledge:
                   terms, tokenize='unicode61');
                 CREATE TABLE IF NOT EXISTS info (project TEXT PRIMARY KEY, refreshed REAL);
                 CREATE TABLE IF NOT EXISTS index_version (project TEXT PRIMARY KEY, version INTEGER);
+                CREATE TABLE IF NOT EXISTS definitions (
+                  project TEXT, path TEXT, term TEXT, line INTEGER, body TEXT,
+                  PRIMARY KEY(project, term, path, line));
+                CREATE INDEX IF NOT EXISTS definitions_file ON definitions(project, path);
             """)
 
     def _connect(self):
@@ -359,7 +364,9 @@ class Knowledge:
                     compact = file.suffix.casefold() in {".md", ".txt", ".adoc", ".rst"}
                     chunks = [(project, name, line, c, " ".join(_terms(name + " " + c)))
                               for line, c in _chunks(body, compact=compact)]
-                    edits.append((name, signature, chunks))
+                    definitions = [(project, name, term, line, text)
+                                   for term, line, text in glossary_definitions(body)] if file in imported else []
+                    edits.append((name, signature, chunks, definitions))
                 except (OSError, ValueError, UnicodeError):
                     # Temporarily inaccessible files keep their prior snapshot.
                     continue
@@ -368,19 +375,53 @@ class Knowledge:
                 if rebuild:
                     db.execute("DELETE FROM passages WHERE project=?", (project,))
                     db.execute("DELETE FROM files WHERE project=?", (project,))
+                    db.execute("DELETE FROM definitions WHERE project=?", (project,))
                 else:
                     for name in cached.keys() - seen:
                         db.execute("DELETE FROM passages WHERE project=? AND path=?", (project, name))
                         db.execute("DELETE FROM files WHERE project=? AND path=?", (project, name))
-                for name, (mtime, size), chunks in edits:
+                        db.execute("DELETE FROM definitions WHERE project=? AND path=?", (project, name))
+                for name, (mtime, size), chunks, definitions in edits:
                     if not rebuild and name in cached:
                         db.execute("DELETE FROM passages WHERE project=? AND path=?", (project, name))
+                        db.execute("DELETE FROM definitions WHERE project=? AND path=?", (project, name))
                     db.executemany("INSERT INTO passages VALUES (?,?,?,?,?)", chunks)
+                    db.executemany("INSERT INTO definitions VALUES (?,?,?,?,?)", definitions)
                     db.execute("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?)",
                                (project, name, mtime, size, int(bool(chunks))))
                 db.execute("INSERT OR REPLACE INTO info VALUES (?,?)", (project, time.time()))
                 db.execute("INSERT OR REPLACE INTO index_version VALUES (?,?)", (project, INDEX_VERSION))
         return self.status(root)
+
+    def definitions(self, scope, term):
+        key = term_key(term)
+        result = []
+        seen = set()
+        with closing(self._connect()) as db:
+            for root in scope_roots(scope):
+                rows = db.execute("""
+                    SELECT d.path,d.line,d.body,f.mtime,f.bytes
+                    FROM definitions AS d JOIN files AS f USING(project,path)
+                    WHERE d.project=? AND d.term=?
+                    ORDER BY d.path,d.line
+                """, (str(root), key))
+                for name, line, body, mtime, size in rows:
+                    if body.strip() in seen:
+                        continue
+                    path = root / name
+                    try:
+                        if not _file_allowed(path, root):
+                            continue
+                        stat = path.stat()
+                        if (stat.st_mtime_ns, stat.st_size) != (mtime, size):
+                            continue
+                    except OSError:
+                        continue
+                    seen.add(body.strip())
+                    result.append(Source(path, line, body))
+                    if len(result) == 3:
+                        return result
+        return result
 
     def status(self, root):
         if isinstance(root, tuple):
@@ -414,6 +455,80 @@ class Knowledge:
                 (str(root), name))
             return [Source(root / name, int(line), body) for line, body in rows]
 
+    def open_source(self, scope, hit, snapshots):
+        """Read context around an indexed hit without leaving the selected base."""
+        owner = next((root for root in sorted(scope_roots(scope), key=lambda p: len(p.parts), reverse=True)
+                      if hit.path.is_relative_to(root)), None)
+        if owner is None:
+            return None
+        if hit.path not in snapshots:
+            snapshots[hit.path] = self._source_lines(owner, hit.path)
+        lines = snapshots[hit.path]
+        anchor = hit.line - 1
+        if not lines or not 0 <= anchor < len(lines):
+            return None
+        length = len(hit.text.splitlines())
+        if hit.text not in "\n".join(lines[anchor:anchor + length]):
+            return None
+        # Expand contiguous lines inside the enclosing Markdown section. If the
+        # anchor is a segment of a giant single line, preserve that segment.
+        start, end = anchor, anchor + length
+        budget = 1700 - sum(len(line) + 1 for line in lines[start:end])
+        if budget < 0:
+            return hit
+        heading = re.compile(r"^#{1,6}\s")
+        lower = start
+        while lower > max(0, anchor - 32) and not heading.match(lines[lower]):
+            lower -= 1
+        upper = end
+        while upper < min(len(lines), anchor + 36) and not heading.match(lines[upper]):
+            upper += 1
+        while start > lower or end < upper:
+            before = len(lines[start - 1]) + 1 if start > lower else budget + 1
+            after = len(lines[end]) + 1 if end < upper else budget + 1
+            if end - anchor <= anchor - start + length and after <= budget:
+                end += 1
+                budget -= after
+            elif before <= budget:
+                start -= 1
+                budget -= before
+            elif after <= budget:
+                end += 1
+                budget -= after
+            else:
+                break
+        while start < anchor and not lines[start].strip():
+            start += 1
+        while end > anchor + length and not lines[end - 1].strip():
+            end -= 1
+        return Source(hit.path, start + 1, "\n".join(lines[start:end]))
+
+    def _source_lines(self, root, path):
+        name = str(path.relative_to(root))
+        with closing(self._connect()) as db:
+            signature = db.execute(
+                "SELECT mtime,bytes FROM files WHERE project=? AND path=? AND indexed=1",
+                (str(root), name)).fetchone()
+        try:
+            if signature is None or not _file_allowed(path, root):
+                return ()
+            imported = path in imported_documents(root)
+            if self.documents_only and not imported:
+                return ()
+            def unchanged():
+                stat = path.stat()
+                return signature == (stat.st_mtime_ns, stat.st_size)
+            if not unchanged():
+                return ()
+            body = path.read_text(encoding="utf-8-sig")
+            if not unchanged() or "\x00" in body or PRIVATE_BODY.search(body):
+                return ()
+            if imported or name in PACK_FILENAMES:
+                body, _ = parse_pack(body)
+            return body.splitlines()
+        except (OSError, ValueError):
+            return ()
+
     def search(self, root, query, limit=4):
         if isinstance(root, tuple):
             terms = list(dict.fromkeys(_terms(query, query=True)))[:24]
@@ -421,7 +536,7 @@ class Knowledge:
                 return []
             rows, paths = [], {}
             for base in scope_roots(root):
-                for rank, hit in enumerate(self.search(base, query, limit=max(8, limit)), 1):
+                for rank, hit in enumerate(Knowledge.search(self, base, query, limit=max(8, limit)), 1):
                     key = f"{summary_title(base)} / {hit.path.as_posix()}"
                     paths[key] = hit.path
                     rows.append((key, hit.line, hit.text, -1 / rank))

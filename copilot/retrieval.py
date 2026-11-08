@@ -7,7 +7,8 @@ from .brains import local_api_opener
 
 
 DEFAULT_SEARCH_URL = "http://127.0.0.1:8090/search"
-RETRIEVAL_PROVIDERS = {"sqlite": "SQLite · встроенный", "http_local": "Локальный API поиска"}
+RETRIEVAL_PROVIDERS = {"sqlite": "SQLite · встроенный", "ollama_hybrid": "SQLite + поиск по смыслу",
+                       "http_local": "Локальный API поиска"}
 
 
 def local_search_url(value):

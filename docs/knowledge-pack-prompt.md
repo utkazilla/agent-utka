@@ -58,6 +58,8 @@ Describe coverage, concrete test cases and confirmed results with their date and
 ### Comprehensive terminology and symbol dictionary
 Include every discovered project abbreviation, entity, variable, method, field, status and technical/business term. Record exact spelling, expansion, meaning, scope, type/example, source, pronunciation variants and ambiguity. Do not guess expansions from similar sounds. Separate different meanings of the same abbreviation.
 
+Also output a dedicated Markdown heading `### Utka glossary` followed by one line per supported term, in the exact form `- **Term** — Plain-language definition. Source: path:line or a document link.` Put the actual meaning first and explain what it does in this project in one or two sentences. Cover systems, abbreviations, business concepts and code symbols in one pass. Use exact spellings and give common aliases their own entries. A class name, mention or link alone is not a definition. If you cannot verify an expansion, keep the abbreviation and explain only its supported role. Distinguish meanings by their scope and keep definitions outside code fences.
+
 ### Questions and evidence-backed answers
 Create a coverage-driven set of actual and expected questions across every studied area, without a fixed count. Include what/how/why/where-in-code, what changed, who/when decided, exceptions, verification and comparisons.
 Each entry needs a direct standalone answer, details, applicability conditions, current/historical status and exact sources. Preserve all necessary reasoning for complex questions. When evidence is missing, explain precisely what is unknown.

@@ -22,7 +22,7 @@ from .pipeline import Pipeline
 from .retrieval import create_retriever
 from .settings_window import show_settings
 from .speech import SpeechSession, create_asr, detect, loopback
-from .suggest import MAX_OPTIONS, Advisor, Card
+from .suggest import MAX_OPTIONS, Advisor, Card, is_question
 
 
 BG, SURFACE, BORDER = "#181b19", "#222622", "#383f39"
@@ -34,6 +34,8 @@ LOG = logging.getLogger("call_copilot")
 
 
 class Overlay:
+    ANSWER_MODES = {"manual": "Только по запросу", "automatic": "Автоматически"}
+
     def __init__(self, window, settings, *, demo=False):
         self.window, self.settings = window, settings
         self.ui_language = settings.get("ui_language", "ru")
@@ -69,7 +71,7 @@ class Overlay:
         self.device_name = ""
         self.llm_status = ""
         self.llm = create_brain(RUNTIME, settings)
-        self.index = None if demo else self._create_index(settings)
+        self.index = None if demo else self._create_index(settings, self.llm)
         self.status = self._copy_var("Подготовка локальных моделей…")
         self.project_label = tk.StringVar()
         self.index_status = self._copy_var(EMPTY_KNOWLEDGE_HELP)
@@ -104,12 +106,14 @@ class Overlay:
             "ollama": {"ollama"},
             "ollama_local": {"ollama_url", "ollama_model"},
             "openai_local": {"llm_url", "llm_model"},
+            "openai": {"openai_model", "openai_key_protected"},
         }
         speech_changed = changed & ({"stt_engine", "pause_ms"} | speech_keys[settings["stt_engine"]])
         answer_changed = changed & ({"llm_provider"} | answer_keys[settings["llm_provider"]])
         index_changed = changed & {"rag_directory", "rag_provider", "rag_url"}
-        index = self._create_index(settings) if index_changed else self.index
         brain = create_brain(RUNTIME, settings) if answer_changed else self.llm
+        index_changed = bool(index_changed or answer_changed and settings["rag_provider"] == "ollama_hybrid")
+        index = self._create_index(settings, brain) if index_changed else self.index
         save_settings(updates)
         with self.capture_lock:
             self.settings = settings
@@ -119,6 +123,8 @@ class Overlay:
                 self.speech_session.reconfigure(self._speech_factory(settings, reset))
                 self.pipeline.cancel_speech()
         if index_changed:
+            if hasattr(self.index, "close"):
+                self.index.close()
             self.index = index
             self.index_generation = object()
             self.indexed_count = None
@@ -138,7 +144,10 @@ class Overlay:
             threading.Thread(target=self._warm_asr, args=(reset,), daemon=True).start()
 
     @staticmethod
-    def _create_index(settings):
+    def _create_index(settings, brain=None):
+        if settings.get("rag_provider") == "ollama_hybrid":
+            from .semantic_search import HybridKnowledge
+            return HybridKnowledge(index_path(settings, documents_only=True), brain)
         return Knowledge(index_path(settings, documents_only=True),
                          retriever=create_retriever(settings), documents_only=True)
 
@@ -184,6 +193,7 @@ class Overlay:
         if self.base_items:
             self._projects(self.base_items)
         self._update_overlay_controls()
+        self._refresh_answer_modes()
         self._render_selection()
         if self.history_window:
             self.history_window.title(self._tr("История · Agent Utka"))
@@ -329,6 +339,11 @@ class Overlay:
                     bg=SURFACE, localized=True).pack(side="left")
         self._button(transcript_header, "К концу", lambda: self.transcript.see("end"),
                      localized=True).pack(side="right")
+        self.answer_mode = ttk.Combobox(transcript_header, state="readonly",
+                                        style="Copilot.TCombobox", width=21)
+        self.answer_mode.pack(side="right", padx=(6, 8))
+        self.answer_mode.bind("<<ComboboxSelected>>", self._change_answer_mode)
+        self._refresh_answer_modes()
         transcript_box = tk.Frame(heard, bg=SURFACE)
         transcript_box.pack(fill="both", expand=True, pady=(4, 0))
         self.transcript = tk.Text(transcript_box, width=45, height=5, wrap="word", bg=SURFACE, fg=INK,
@@ -482,6 +497,8 @@ class Overlay:
             return
         if self.live.is_set():
             self.live.clear()
+            if self.pipeline and self.pipeline.cancel_automatic():
+                self._set_copy(self.answer_status, "")
             self._set_copy(self.listen_label, "Слушать")
             self.status_dot.configure(fg=MUTED)
             self._set_copy(self.status, "Пауза · звук не обрабатывается")
@@ -489,6 +506,25 @@ class Overlay:
             self.live.set()
             self._set_copy(self.listen_label, "Пауза")
             self._set_copy(self.status, "Подключение к звуку Windows…")
+
+    def _refresh_answer_modes(self):
+        self.answer_mode["values"] = [self._tr(label) for label in self.ANSWER_MODES.values()]
+        self.answer_mode.set(self._tr(self.ANSWER_MODES[self.settings.get("answer_mode", "manual")]))
+
+    def _change_answer_mode(self, _event=None):
+        choice = self.answer_mode.current()
+        if choice < 0:
+            return
+        mode = tuple(self.ANSWER_MODES)[choice]
+        try:
+            save_settings({"answer_mode": mode})
+        except OSError as error:
+            self._refresh_answer_modes()
+            messagebox.showerror(self._tr("Не удалось сохранить режим подсказок"), str(error), parent=self.window)
+            return
+        self.settings["answer_mode"] = mode
+        if mode == "manual" and self.pipeline and self.pipeline.cancel_automatic():
+            self._set_copy(self.answer_status, "")
 
     def _known_projects(self):
         return discover_projects(extra=self.settings["extra_roots"], documents_only=True,
@@ -1056,6 +1092,12 @@ class Overlay:
     def _turn(self, event, data):
         if event == "transcript":
             self._append_transcript(data)
+            if (self.settings.get("answer_mode") == "automatic" and self.live.is_set()
+                    and self.review_id is None and self.pipeline and self.project is not None
+                    and self.import_target != self.project and self.indexed_count and self.llm_done
+                    and not self.llm_status and is_question(data)
+                    and self.pipeline.ask(data, self.project, automatic=True)):
+                self._set_copy(self.answer_status, "Ищу автоматическую подсказку…")
         elif event == "card":
             text, card, elapsed = data
             self._save_card(text, card)
@@ -1097,6 +1139,8 @@ class Overlay:
         self.closed.set()
         self.live.clear()
         self.scan.set()
+        if hasattr(self.index, "close"):
+            self.index.close()
         if self.drain_id is not None:
             self.window.after_cancel(self.drain_id)
             self.drain_id = None
@@ -1143,6 +1187,7 @@ def main():
             return
     if args.ui_test:
         settings["ui_language"] = "ru"
+        settings["answer_mode"] = "manual"
     app = Overlay(window, settings, demo=args.ui_test)
     if args.ui_test:
         app.live.set()
@@ -1153,6 +1198,9 @@ def main():
             def ask(self, text, root):
                 calls.append((text, root))
                 return True
+
+            def cancel_automatic(self):
+                return False
 
             def close(self):
                 pass

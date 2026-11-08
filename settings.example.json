@@ -5,6 +5,8 @@
   "llm_provider": "ollama",
   "llm_model": "",
   "llm_url": "http://127.0.0.1:1234/v1",
+  "openai_model": "gpt-4o",
+  "answer_mode": "manual",
   "stt_engine": "qwen",
   "whisper_model": "large-v3",
   "whisper_device": "auto",

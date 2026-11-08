@@ -55,8 +55,13 @@ class LocalRetrievalTests(unittest.TestCase):
                 model = "test"
 
                 def generate(self, payload, _cancelled):
+                    if "supported" in payload["format"]["properties"]:
+                        return {"supported": [1], "complete": True}
                     evidence = json.loads(payload["messages"][-1]["content"])["sources"]
-                    return {"quotes": [e["id"] for e in evidence if e["source"].startswith("Orbit /")]}
+                    return {"claims": [{"text": "Orbit retries after 9 seconds.",
+                                        "sources": [e["id"] for e in evidence
+                                                    if e["source"].startswith("Orbit /")]}],
+                            "missing": "", "follow_up": []}
 
             card = Advisor(index, SelectOrbit(), requested=True)("What is the retry delay in Orbit?", [], scope)
             self.assertEqual(len(card.sources), 1)

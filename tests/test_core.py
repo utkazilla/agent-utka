@@ -289,6 +289,33 @@ class TopicTest(unittest.TestCase):
             release_answer.set()
             engine.close()
 
+    def test_automatic_requests_leave_manual_requests_in_control(self):
+        from copilot.pipeline import Pipeline
+
+        observed = queue.Queue()
+        started = threading.Event()
+        release = threading.Event()
+
+        def generate(text, _context, _root, _cancelled, _preview):
+            if text == "automatic":
+                started.set()
+                release.wait(2)
+            return text
+
+        engine = Pipeline(None, generate, lambda *event: observed.put(event), manual=True)
+        try:
+            self.assertTrue(engine.ask("automatic", ".", automatic=True))
+            self.assertTrue(started.wait(1))
+            self.assertFalse(engine.ask("overlap", ".", automatic=True))
+            self.assertTrue(engine.ask("manual", "."))
+            self.assertFalse(engine.cancel_automatic())
+            release.set()
+            _, kind, (text, card, _) = observed.get(timeout=2)
+            self.assertEqual((kind, text, card), ("card", "manual", "manual"))
+        finally:
+            release.set()
+            engine.close()
+
     def test_resumed_speech_does_not_cancel_the_last_recognized_turn(self):
         from copilot.pipeline import Pipeline
         observed = queue.Queue()

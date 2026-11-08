@@ -16,6 +16,9 @@ DEFAULTS = {
     "llm_provider": "ollama",
     "llm_model": "",
     "llm_url": "http://127.0.0.1:1234/v1",
+    "openai_model": "gpt-4o",
+    "openai_key_protected": "",
+    "answer_mode": "manual",
     "stt_engine": "qwen",
     "qwen_model": DEFAULT_QWEN_MODEL,
     "qwen_device": "auto",
@@ -40,6 +43,8 @@ def _local_settings(path):
 
 def load_settings(path=LOCAL_SETTINGS):
     settings = {**DEFAULTS, **_local_settings(path)}
+    if settings["answer_mode"] not in ("manual", "automatic"):
+        settings["answer_mode"] = "manual"
     if settings["ui_language"] not in UI_LANGUAGES:
         settings["ui_language"] = DEFAULTS["ui_language"]
     qwen = settings["qwen_model"]

@@ -10,6 +10,8 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
+from .answer_trace import event as answer_event
+
 
 CONTEXT_SIZE = 6144
 _MODEL_PART = r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}"
@@ -224,5 +226,11 @@ class LocalOllama:
                 if on_prefix and on_prefix("".join(pieces)):
                     on_prefix = None
                 if event.get("done"):
+                    usage = {key: event[key] for key in ("prompt_eval_count", "eval_count")
+                             if type(event.get(key)) is int}
+                    reason = event.get("done_reason")
+                    if reason in ("stop", "length"):
+                        usage["done_reason"] = reason
+                    answer_event("ollama_usage", **usage)
                     break
         return json.loads("".join(pieces))

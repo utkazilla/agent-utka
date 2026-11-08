@@ -87,9 +87,9 @@ jobs:
           Download and double-click the **Agent-Utka-Setup** Windows x64 executable below on Windows 10 or 11. Python is included; no terminal or separate Python installation is required.
 
           ### What's new
-          - **Start with a file.** Click **Import a file…** and choose a Markdown or text document. On a fresh install, Agent Utka suggests a base name from the file. Confirm it and the app creates, selects, and indexes the base.
-          - **Create a summary from your project.** If you need a file first, click **Copy prompt** and paste it into your project conversation in Codex or Claude Code. Import the Markdown it generates.
-          - **Add to an existing base or create another.** When bases exist, choose the destination at import. Use **Edit document name…** to customize how a document appears in sources.
+          - **Answers about project status.** Agent Utka finds matching dated status notes and quotes the newest matching snapshot it finds. The answer groups confirmed facts, open items, and next steps. The quoted text preserves counts and wording from the source.
+          - **Source checks for other questions.** Answers can use nearby evidence and run a second search when the first pass leaves gaps. Open **Sources** to review the cited material.
+          - **Answer controls.** Choose manual or automatic suggestions. Answer providers include local Ollama and optional OpenAI with your own key.
 
           ### Getting started
           Open **Agent Utka** from Start. **Download and start** prepares Qwen speech recognition and portable Ollama with the default answer model. Allow about 6 GB of downloads and 12 GB of free disk space during initial setup. Models are downloaded to your PC and are not bundled in this release.

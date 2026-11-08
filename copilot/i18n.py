@@ -33,6 +33,10 @@ def flag_images(master):
 
 
 OVERLAY_COPY = {
+    "Только по запросу": ("On request", "Solo a petición"),
+    "Автоматически": ("Automatic", "Automático"),
+    "Не удалось сохранить режим подсказок": ("Could not save answer mode", "No se pudo guardar el modo de respuesta"),
+    "Ищу автоматическую подсказку…": ("Looking up an automatic suggestion…", "Buscando una sugerencia automática…"),
     "Импорт файла…": ("Import a file…", "Importar archivo…"),
     "Добавить файл в базу": ("Add file to knowledge base", "Añadir archivo a la base"),
     "Изменить название выжимки…": ("Edit document name…", "Editar nombre del documento…"),
@@ -172,6 +176,7 @@ OVERLAY_COPY = {
     "Слышу речь…": ("Speech detected…", "Voz detectada…"),
     "Распознаю реплику…": ("Transcribing…", "Transcribiendo…"),
     "Ответ из базы": ("Answer from the knowledge base", "Respuesta de la base de conocimiento"),
+    "Частичный ответ из базы": ("Partial answer from the knowledge base", "Respuesta parcial de la base de conocimiento"),
     "Нет ответа в базе": ("No answer in the knowledge base", "Sin respuesta en la base de conocimiento"),
     "По этому фрагменту не нашёл подтверждённого ответа.": ("No verified answer found for this passage.", "No se encontró una respuesta verificada para este fragmento."),
     "Локальная модель подсказок недоступна.": ("The local answer model is unavailable.", "El modelo local de respuestas no está disponible."),

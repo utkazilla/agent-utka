@@ -78,6 +78,8 @@ class Pipeline:
         self.guard = threading.Lock()
         self.history = []
         self.prepared = None
+        self.active_request = None
+        self.last_automatic = None
         for worker in (self._speech, self._advice):
             threading.Thread(target=worker, daemon=True).start()
 
@@ -130,12 +132,26 @@ class Pipeline:
             self.prepared[-1].cancel()
             self.prepared = None
 
-    def ask(self, text, root):
+    def ask(self, text, root, *, automatic=False):
         text = text.strip()
         if not self.manual or not text or root is None:
             return False
         with self.guard:
-            return self.cards.submit(self.cards.begin(), (self.suggest, text, [], root, time.perf_counter()))
+            if automatic and self.active_request is not None and self.cards.is_current(self.active_request):
+                return False
+            token = self.cards.begin()
+            if not self.cards.submit(token, (self.suggest, text, [], root, time.perf_counter())):
+                return False
+            self.active_request = token
+            self.last_automatic = token if automatic else None
+            return True
+
+    def cancel_automatic(self):
+        with self.guard:
+            if self.last_automatic is not None and self.cards.is_current(self.last_automatic):
+                self.cards.begin()
+                return True
+            return False
 
     def set_advisor(self, suggest):
         with self.guard:
@@ -212,6 +228,10 @@ class Pipeline:
                             "Локальный API поиска недоступен. Проверь адрес в настройках.")
             except Exception as error:
                 self._event(token, "answer_error" if self.manual else "error", f"Подсказка: {error}")
+            finally:
+                with self.guard:
+                    if self.active_request == token:
+                        self.active_request = None
 
     def close(self):
         self.stopping.set()

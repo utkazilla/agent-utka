@@ -58,6 +58,8 @@ Cobertura, casos concretos y resultados confirmados con fecha y entorno. Para de
 ### Diccionario exhaustivo
 Todas las abreviaturas, entidades, variables, métodos, campos, estados y términos técnicos/de negocio descubiertos. Para cada uno: escritura exacta, desarrollo, significado, ámbito, tipo/ejemplo, fuente, pronunciaciones y ambigüedades. No adivines significados por semejanza fonética. Separa los sentidos diferentes de una misma abreviatura.
 
+Añade un encabezado Markdown `### Utka glossary` y una línea por término confirmado con el formato exacto `- **Término** — Definición en lenguaje claro. Fuente: ruta:línea o enlace al documento.` Empieza con el significado y explica su función en el proyecto en una o dos frases. Incluye sistemas, abreviaturas, conceptos de negocio y símbolos de código en una sola pasada. Conserva la grafía exacta y pon los alias habituales en líneas propias. Una mención, nombre de clase o enlace no basta como definición. Si no se conoce el desarrollo de una abreviatura, consérvala y describe solo su función confirmada. Distingue los sentidos por su ámbito. Mantén el glosario fuera de los bloques de código.
+
 ### Preguntas y respuestas demostrables
 Crea preguntas reales y previsibles que cubran cada área estudiada, sin un número fijo. Incluye qué/cómo/por qué/dónde en el código, qué cambió, quién/cuándo decidió, excepciones, comprobaciones y comparaciones.
 Cada entrada debe tener respuesta directa e independiente, detalles, condiciones, vigencia histórica/actual y fuentes exactas. Conserva toda la lógica necesaria de las preguntas complejas. Si faltan pruebas, especifica qué se desconoce.

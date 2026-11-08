@@ -52,6 +52,60 @@ def _validate_glossary(data):
     return {**data, "hotwords": hints}
 
 
+_GLOSSARY_HEADING = re.compile(r"^(#{1,6})\s+Utka glossary\s*#*\s*$", re.I)
+_HEADING = re.compile(r"^(#{1,6})\s+")
+_DEFINITION_ROW = re.compile(r"^\s*[-*]\s+\*\*([^*\r\n]{1,80})\*\*\s+[—–-]\s+(\S.+)\s*$")
+_DEFINITION_QUESTION = re.compile(
+    r"^\s*¿?(?:что\s+такое|что\s+значит|what\s+(?:is|are)(?:\s+(?:a|an|the))?|"
+    r"qu[eé]\s+es|qu[eé]\s+significa)\s+(?P<term>[\w.`+#-]+(?:\s+[\w.`+#-]+){0,4})\s*[?!.]*\s*$",
+    re.I,
+)
+
+
+def term_key(term):
+    return " ".join(term.strip().strip("`").casefold().split())
+
+
+def definition_term(question):
+    match = _DEFINITION_QUESTION.fullmatch(question)
+    if not match:
+        return None
+    return term_key(match["term"].rstrip(".")) or None
+
+
+def glossary_definitions(text):
+    """Yield exact lines from glossary entries or an explicit definition heading."""
+    level = None
+    fence = None
+    pending = None
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if fence:
+            if len(line) >= len(fence) and set(line) == {fence[0]}:
+                fence = None
+            continue
+        if match := re.match(r"^(`{3,}|~{3,})", line):
+            fence = match[1]
+            pending = None
+            continue
+        if match := _GLOSSARY_HEADING.fullmatch(line):
+            level = len(match[1])
+            pending = None
+            continue
+        if match := _HEADING.match(line):
+            pending = definition_term(re.sub(r"\s+#+$", "", line[match.end():]))
+            if level is not None and len(match[1]) <= level:
+                level = None
+            continue
+        if pending is not None and line:
+            if len(raw) <= 1200 and not re.match(r"^(?:[-*+] |\d+[.)] |[>|<`])", line):
+                yield pending, number, raw
+            pending = None
+        if level is not None and (match := _DEFINITION_ROW.fullmatch(raw)) and len(raw) <= 1200:
+            if key := term_key(match[1]):
+                yield key, number, raw
+
+
 def parse_pack(text):
     """Return the citation text and the optional glossary, preserving line numbers."""
     lines = text.splitlines(keepends=True)

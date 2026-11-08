@@ -1,16 +1,111 @@
 import json
+import re
 import threading
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request
 
 from .ollama_library import LocalOllama, local_api_opener
+from .windows_secrets import unprotect_key
 
 
 BRAIN_PROVIDERS = {
     "ollama": "Ollama · встроенный",
     "ollama_local": "Ollama · установленный",
     "openai_local": "OpenAI-совместимый · локальный",
+    "openai": "OpenAI API · облако",
 }
+
+OPENAI_MODELS = ("gpt-4o", "gpt-6.1-terra", "gpt-4o-mini")
+
+
+class OpenAIError(RuntimeError):
+    pass
+
+
+def openai_model_id(value):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", value):
+        raise ValueError("Укажи корректный ID модели OpenAI.")
+    return value
+
+
+def _strict_schema(schema):
+    # Legacy answer schemas already require every property. Close their objects for the API.
+    result = dict(schema)
+    if result.get("type") == "object":
+        result["additionalProperties"] = False
+        result["properties"] = {key: _strict_schema(value)
+                                for key, value in result["properties"].items()}
+    if "items" in result:
+        result["items"] = _strict_schema(result["items"])
+    return result
+
+
+class OpenAIResponses:
+    def __init__(self, model, protected_key):
+        self.model = openai_model_id(model)
+        self.protected_key = protected_key
+        self.closed = threading.Event()
+        self.opener = local_api_opener()
+
+    def _request(self, endpoint, payload=None):
+        if self.closed.is_set():
+            raise OpenAIError("Соединение с OpenAI закрыто.")
+        try:
+            key = unprotect_key(self.protected_key)
+        except (ValueError, OSError):
+            raise OpenAIError("Сохранённый ключ OpenAI недоступен. Введи его заново.") from None
+        if not key:
+            raise OpenAIError("Добавь ключ OpenAI API в настройках.")
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+        request = Request("https://api.openai.com/v1/" + endpoint, data=data,
+                          headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        try:
+            with self.opener.open(request, timeout=25 if data is not None else 10) as response:
+                return json.load(response)
+        except HTTPError as error:
+            # The response body can contain the rejected credential.
+            messages = {
+                401: "OpenAI отклонил ключ API (401). Проверь его в настройках.",
+                403: "OpenAI запретил доступ (403). Проверь права ключа.",
+                404: "Модель OpenAI недоступна для этого ключа (404).",
+                429: "OpenAI ограничил запросы (429). Проверь лимиты и баланс.",
+            }
+            code = error.code
+            error.close()
+            raise OpenAIError(messages.get(code, f"OpenAI вернул ошибку HTTP {code}.")) from None
+        except (OSError, ValueError):
+            raise OpenAIError("Не удалось получить ответ от OpenAI.") from None
+
+    def warm(self):
+        self._request("models/" + self.model)
+
+    def generate(self, payload, cancelled, on_prefix=None):
+        if cancelled():
+            return {}
+        request = {
+            "model": self.model,
+            "input": payload["messages"],
+            "text": {"format": {"type": "json_schema", "name": "utka_answer", "strict": True,
+                                "schema": _strict_schema(payload["format"])}},
+            "max_output_tokens": max(128, payload["options"]["num_predict"]),
+            "store": False,
+        }
+        if self.model == "gpt-6.1-terra":
+            request["reasoning"] = {"effort": "none"}
+        result = self._request("responses", request)
+        if cancelled():
+            return {}
+        if not isinstance(result, dict) or result.get("status") != "completed":
+            raise OpenAIError("OpenAI вернул незавершённый ответ.")
+        parts = [content["text"] for item in result.get("output", []) if item.get("type") == "message"
+                 for content in item.get("content", []) if content.get("type") == "output_text"]
+        if not parts:
+            raise OpenAIError("OpenAI не вернул ответ в ожидаемом формате.")
+        return json.loads("".join(parts))
+
+    def close(self):
+        self.closed.set()
 
 
 def local_api_url(url):
@@ -84,6 +179,8 @@ class LocalChatCompletions:
 
 def create_brain(runtime, settings):
     provider = settings.get("llm_provider", "ollama")
+    if provider == "openai":
+        return OpenAIResponses(settings.get("openai_model", "gpt-4o"), settings.get("openai_key_protected", ""))
     if provider == "openai_local":
         return LocalChatCompletions(settings["llm_url"], settings["llm_model"])
     if provider == "ollama_local":
