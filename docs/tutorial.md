@@ -33,7 +33,7 @@ To configure your own services before the first setup, copy `settings.example.js
 **New base** is always available beside the knowledge selector on the main screen. Enter a name and click **Create base**. No document or folder is required. Your empty base is selected immediately and remains available after restarting. Then use **Copy prompt** or **Import**. **Open base** shows its documents and retrieval results; an empty base offers an import action.
 
 1. Save the fictional [Orbit Sync example](examples/orbit-knowledge.md) on your PC.
-2. Click **Import**, select that file, choose **New base…**, and click **Import**. Wait for **Ready**. Agent Utka creates and selects the base.
+2. Click **Import a file…** and select the file. On a fresh install, keep or edit the suggested base name and click **Import**. If you already have bases, choose the destination in the dialog. Wait for **Ready**. Agent Utka selects the imported base.
 3. Play the question **“How long does the Orbit sync worker wait before retrying a temporary failure?”** through the default Windows output. You can play a recording or generate the question locally using Windows PowerShell. Run the following while Agent Utka is listening.
 
    ~~~powershell
@@ -63,7 +63,7 @@ In **Add to knowledge base**, choose an existing base or **New base…**. For a 
 
 The selector on the main screen controls where answers are searched: one named base or **All bases**. **Open base** uses that same selection. Combined results and citations include the originating base.
 
-In the import dialog, **Document name** controls the document's display name in sources and the knowledge browser. **Add to knowledge base** chooses its destination separately. Click **New base…** and enter a **New base name** to create one. **All bases** is a search scope, not an import destination. To rename an existing summary, reimport the same original file into the same base and edit its document name; the existing document is updated without a duplicate. The original file and its contents stay unchanged.
+In the import dialog, **Add to knowledge base** chooses the destination when there are existing bases. Select **New base…** to enter a base name. **Edit document name…** controls how the document appears in sources and the knowledge browser. **All bases** is a search scope. To rename an existing summary, reimport the same original file into the same base and use **Edit document name…**. The existing document is updated and the original file stays unchanged.
 
 To ask without speech, type or paste into **Your question** on the main screen. Click **Ask** beside that field or press **Ctrl+Enter** inside it; Enter inserts a new line. Typed questions use the selected base or **All bases**, and their answers appear in the same history with sources. Your draft stays available for editing and incoming speech does not change it.
 
@@ -73,7 +73,7 @@ Import an updated version from the same original file location into the same bas
 
 1. Open the project in Codex or Claude Code. In Agent Utka, click **Copy prompt** on the main screen. Paste it into the coding agent's project chat. The prompt asks the agent to reconstruct all accessible project conversation history, code structure, MR/PR changes and reviews, and linked documentation, then save the detailed knowledge file as `utka-cue-knowledge.md` in the project root. It requires a source register, coverage map, historical/current labels and explicit gaps for unavailable evidence. There is no output-length or full-glossary entry quota.
 2. Review the generated file. Keep current behavior, constraints, and source paths close to each answer. A `utka-cue-asr` fenced JSON block holds exact terms and pronunciation aliases. Existing knowledge documents can use the same format as the [example pack](examples/orbit-knowledge.md).
-3. In Agent Utka, click **Import**, select the reviewed pack, and choose its destination base. Click **Import** and wait for **Ready**.
+3. In Agent Utka, click **Import a file…**, select the reviewed pack, and confirm the destination. Click **Import** and wait for **Ready**.
 4. After a project change, ask the agent to refresh the pack, review it, then import it from the same file location into the same base. Citations point to lines in the imported pack. Keep original source links inside the pack.
 
 Existing packs named `utka-knowledge.md` or `call-copilot-knowledge.md` and glossary blocks marked `utka-asr` or `call-copilot-asr` also work when imported.

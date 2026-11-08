@@ -36,16 +36,16 @@ Select a project or import documents, then open **Open base** on the main screen
 
 ### Try your first answer
 
-1. Click **Import** and choose the [fictional Orbit knowledge pack](docs/examples/orbit-knowledge.md). Select **New base…**, keep the suggested name, and click **Import**. Wait for **Ready**.
+1. Click **Import a file…** and choose the [fictional Orbit knowledge pack](docs/examples/orbit-knowledge.md). On a fresh install, the dialog suggests the base name. Click **Import** and wait for **Ready**.
 2. Play or synthesize the question “How long does the Orbit sync worker wait before retrying a temporary failure?” through the default Windows output. [Text-to-speech example](docs/tutorial.md#create-a-knowledge-base-and-try-an-answer)
 3. Select the question in the transcript and press **Ask**. The expected answer is **5 seconds**. Open **Sources** to see the supporting line.
 
 ## Use your own project
 
-The main window always offers **New base**, **Copy prompt**, **Import**, and **Open base**. You can create an empty named base before generating any documents; it stays available after restarting. Select that base when you import your summary. **All bases** combines search across your bases and is not an import destination.
+If you already have a Markdown or text file, start with **Import a file…**. You can create and select your first base during that import. To start with an empty named base, use **New base** on the main screen. Use **Open base** to inspect the selected base. **All bases** combines search across your bases.
 
 1. Click **Copy prompt** on the main screen and paste it into the Codex or Claude Code conversation where you worked on the project.
-2. Review the generated `utka-cue-knowledge.md`, then click **Import**, select that file, and choose an existing base or **New base…**.
+2. Review the generated `utka-cue-knowledge.md`, then click **Import a file…** and select it. If you have bases already, choose an existing base or **New base…**. Click **Import** and wait for **Ready**.
 
 The prompt builds a detailed project reference from accessible conversation history, code, MR/PR changes and reviews, and connected documentation, with sources and explicit coverage gaps. Imported documents have no application-imposed size cap.
 

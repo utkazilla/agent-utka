@@ -147,6 +147,9 @@ try:
         overlay._projects([])
         assert not any(isinstance(child, tk.Toplevel) for child in window.winfo_children())
         assert overlay.new_base_button.winfo_ismapped()
+        window.update_idletasks()
+        assert overlay.first_import_hint.winfo_ismapped()
+        assert not overlay.browse_button.winfo_ismapped()
         errors = []
 
         def create_from_main():
@@ -161,16 +164,46 @@ try:
 
         with patch('copilot.app.RUNTIME', runtime), patch(
                 'copilot.app.save_settings', lambda values: save_settings(values, configuration)):
+            first = Path(folder) / 'first.md'
+            first.write_text('# Orbit\\nThe first retry waits 5 seconds.', encoding='utf-8')
+
+            def accept_first_import():
+                popup = next(w for w in window.winfo_children() if isinstance(w, tk.Toplevel))
+                try:
+                    popup.update_idletasks()
+                    controls = {w.winfo_name(): w for w in descendants(popup)}
+                    assert 'base' not in controls
+                    assert controls['name'].get() == 'Orbit'
+                    assert not controls['document_name'].winfo_ismapped()
+                    assert invoke_button(popup, overlay._tr('Импортировать'))
+                except Exception as error:
+                    errors.append(error)
+                    popup.destroy()
+
+            with patch('copilot.app.filedialog.askopenfilename', return_value=str(first)):
+                window.after(100, accept_first_import)
+                overlay.import_button.invoke()
+            assert not errors, errors
+            until = time.monotonic() + 5
+            while overlay.import_button.instate(['disabled']) and time.monotonic() < until:
+                window.update()
+                time.sleep(.05)
+            assert overlay.import_button.instate(['!disabled'])
+            assert list(overlay.bases) == ['Orbit']
+            assert load_settings(configuration)['project'] == str(overlay.project)
+            overlay.index = Knowledge(runtime / 'test.sqlite', documents_only=True)
+            assert overlay.index.refresh(overlay.project)[0] == 1
+            assert '5 seconds' in overlay.index.search(overlay.project, 'first retry')[0].text
             window.after(100, create_from_main)
             overlay.new_base_button.invoke()
             assert not errors, errors
-            assert list(overlay.bases) == ['Voyager']
-            assert overlay.project == next(iter(overlay.bases.values()))
+            assert set(overlay.bases) == {'Orbit', 'Voyager'}
+            assert overlay.project == overlay.bases['Voyager']
             assert load_settings(configuration)['project'] == str(overlay.project)
-            assert len(discover_projects(documents_only=True, managed=runtime / 'knowledge')) == 1
+            assert len(discover_projects(documents_only=True, managed=runtime / 'knowledge')) == 2
             window.after(100, lambda: invoke_button(window, overlay._tr('Отмена')))
             overlay.new_base_button.invoke()
-            assert len(overlay.bases) == 1
+            assert len(overlay.bases) == 2
             overlay.index = Knowledge(runtime / 'test.sqlite', documents_only=True)
             assert overlay.index.refresh(overlay.project)[0] == 0
             for _ in range(2):
@@ -194,6 +227,7 @@ try:
             def name_import():
                 popup = next(w for w in window.winfo_children() if isinstance(w, tk.Toplevel))
                 try:
+                    assert invoke_button(popup, overlay._tr('Изменить название выжимки…'))
                     field = next(w for w in descendants(popup) if w.winfo_name() == 'document_name')
                     field.delete(0, 'end')
                     field.insert(0, 'Decisions')
@@ -249,7 +283,8 @@ try:
                     assert confirm.instate(['disabled'])
                     title.insert(0, 'Release decisions')
                     if create_new:
-                        assert invoke_button(popup, overlay._tr('Новая база…'))
+                        picker = next(w for w in descendants(popup) if w.winfo_name() == 'base')
+                        picker.current(len(picker['values']) - 1)
                         entries['name'].delete(0, 'end')
                         entries['name'].insert(0, 'Voyager')
                     confirm.invoke()

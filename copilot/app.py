@@ -71,7 +71,7 @@ class Overlay:
         self.index = None if demo else self._create_index(settings)
         self.status = self._copy_var("Подготовка локальных моделей…")
         self.project_label = tk.StringVar()
-        self.index_status = self._copy_var("Создай базу или импортируй готовую выжимку. Промпт поможет собрать знания.")
+        self.index_status = self._copy_var("")
         self.listen_label = self._copy_var("Пауза")
         self.answer_status = self._copy_var("")
         self.selection_status = self._copy_var("Речь появится в расшифровке")
@@ -299,20 +299,24 @@ class Overlay:
         self.choose = ttk.Combobox(base_header, textvariable=self.project_label, state="readonly",
                                    style="Copilot.TCombobox", width=20)
         self.choose.bind("<<ComboboxSelected>>", self._select)
-        self.new_base_button = self._button(base_header, "Новая база", self._new_knowledge_base,
-                                            primary=True, localized=True)
+        self.new_base_button = self._button(base_header, "Новая база", self._new_knowledge_base, localized=True)
         self._button(base_header, "Настройки", lambda: show_settings(self), localized=True).pack(side="right")
         self.new_base_button.pack(side="right", padx=(0, 6))
         row = tk.Frame(base, bg=BG)
         row.pack(fill="x")
+        self.import_button = self._button(row, "Импорт файла…", self._import_knowledge,
+                                          primary=True, localized=True)
+        self.import_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.copy_prompt_button = self._button(row, "Скопировать промпт", self._copy_knowledge_prompt,
                                               localized=True)
-        self.copy_prompt_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.import_button = self._button(row, "Импортировать", self._import_knowledge, localized=True)
-        self.import_button.pack(side="left", fill="x", expand=True)
+        self.copy_prompt_button.pack(side="left", fill="x", expand=True)
         self.browse_button = self._button(row, "Открыть базу", self._browse_knowledge, localized=True)
-        self.browse_button.pack(side="left", padx=(6, 0))
+        self.first_import_hint = self._label(
+            base, "Добавь файл .md или .txt. Если файла нет, скопируй промпт в чат проекта в Codex или Claude Code.",
+            color=MUTED, size=9, localized=True)
+        self.first_import_hint.pack(fill="x", pady=(6, 0))
         state_row = tk.Frame(base, bg=BG)
+        self.base_status_row = state_row
         state_row.pack(fill="x", pady=(4, 0))
         self.pin_button = self._button(state_row, "", self._pin)
         self.pin_button.pack(side="right")
@@ -511,7 +515,6 @@ class Overlay:
                 label = f"{p.name} · {seen[p.name]}"
             self.bases[label] = p.root
         self.projects = ({all_label: tuple(self.bases.values()), **self.bases} if self.bases else {})
-        self.new_base_button.configure(style="Copilot.TButton" if self.bases else "CopilotPrimary.TButton")
         self.choose["values"] = list(self.projects)
         self.base_heading.pack_forget()
         self.base_name.pack_forget()
@@ -530,9 +533,18 @@ class Overlay:
         self.project_label.set(current or self._tr("База не выбрана"))
         if self.projects.get(current) != self.project:
             self._select()
-        if self.project is not None:
-            self.copy_prompt_button.configure(style="Copilot.TButton")
-            self.import_button.configure(style="CopilotPrimary.TButton")
+        self._update_knowledge_entry()
+
+    def _update_knowledge_entry(self):
+        if self.project is None:
+            self.browse_button.pack_forget()
+        elif not self.browse_button.winfo_manager():
+            self.browse_button.pack(side="left", padx=(6, 0))
+        if self.project is None or self.indexed_count == 0:
+            if not self.first_import_hint.winfo_manager():
+                self.first_import_hint.pack(fill="x", pady=(6, 0), before=self.base_status_row)
+        else:
+            self.first_import_hint.pack_forget()
 
     def _select(self, _event=None):
         selected = self.projects.get(self.project_label.get())
@@ -554,6 +566,7 @@ class Overlay:
         self._set_copy(self.answer_status, "")
         self._load_history()
         self._set_copy(self.index_status, "Подготавливаю базу…")
+        self._update_knowledge_entry()
         self._selection_changed()
         self.scan.set()
 
@@ -567,8 +580,6 @@ class Overlay:
             messagebox.showerror(self._tr("Не удалось скопировать промпт"), str(error), parent=self.window)
             return False
         self._set_copy(self.index_status, "Промпт скопирован. Вставь его в Codex или Claude Code, затем импортируй выжимку.")
-        self.copy_prompt_button.configure(style="Copilot.TButton")
-        self.import_button.configure(style="CopilotPrimary.TButton")
         return True
 
     def _new_knowledge_base(self):
@@ -1011,6 +1022,7 @@ class Overlay:
                       and data[2] == self.project != self.import_target):
                     _, _, _, count, _ = data
                     self.indexed_count = count
+                    self._update_knowledge_entry()
                     if count:
                         self._set_copy(self.index_status, "Готово · напиши вопрос или выдели реплику в расшифровке.")
                     else:

@@ -87,27 +87,18 @@ jobs:
           Download and double-click the **Agent-Utka-Setup** Windows x64 executable below on Windows 10 or 11. Python is included; no terminal or separate Python installation is required.
 
           ### What's new
-          - **Knowledge actions are always available.** New base creates a persistent empty base directly from the main window. Copy prompt, Import and Open base sit together above the transcript. An empty knowledge browser offers an import action.
-          - **Name each summary during import.** Document names and knowledge-base names are separate. An explicit New base button creates a destination; Sources and the knowledge browser show the chosen document name. Reimporting the same original file preserves or updates that name without duplicates.
-          - **Legacy base labels fixed.** Old imported bases use their knowledge title instead of the name of their storage folder.
-          - **Copy prompt → Import** on the main screen. Pick an existing named knowledge base or create one without choosing a storage folder.
-          - **Multiple documents per base.** Reimporting the same original file into the same base updates its copy. Different files with identical names stay separate.
-          - **All bases search.** Search one base or all imported bases. Citations and the knowledge browser retain the originating base.
-          - **Type your own question.** Write or paste a question on the main screen and press its Ask button or Ctrl+Enter in the field. Works without speech and uses the selected base or All bases, with citations and answer history.
-          - **Complete project-memory prompts in English, Russian and Spanish.** The prompts cover accessible conversation history, code structure, MR/PR changes and review discussions, linked documentation, source provenance, historical decisions and coverage gaps. They do not impose output-length or full-glossary entry quotas.
-          - **Large knowledge documents.** Removed the 180 KB import cap and the 200-entry glossary cap. Long paragraphs retain their full text and original citation lines.
-          - **Model/settings improvements.** Saved model changes apply in the current session, selection dialogs close after saving, and dependency downloads show progress.
+          - **Start with a file.** Click **Import a file…** and choose a Markdown or text document. On a fresh install, Agent Utka suggests a base name from the file. Confirm it and the app creates, selects, and indexes the base.
+          - **Create a summary from your project.** If you need a file first, click **Copy prompt** and paste it into your project conversation in Codex or Claude Code. Import the Markdown it generates.
+          - **Add to an existing base or create another.** When bases exist, choose the destination at import. Use **Edit document name…** to customize how a document appears in sources.
 
           ### Getting started
           Open **Agent Utka** from Start. **Download and start** prepares Qwen speech recognition and portable Ollama with the default answer model. Allow about 6 GB of downloads and 12 GB of free disk space during initial setup. Models are downloaded to your PC and are not bundled in this release.
 
-          Copy the project-memory prompt into your project conversation, review the generated Markdown, then import it into the desired base. Select transcript text and press **Ask** or **Ctrl+Enter**. Open **Sources** to inspect the evidence, or **Open base** on the main screen to test retrieval.
+          Try a file of your own or the [fictional Orbit example](https://github.com/utkazilla/agent-utka/blob/main/docs/examples/orbit-knowledge.md). Wait for **Ready**, then type a question or select transcript text and press **Ask**. Open **Sources** to inspect the evidence.
 
           Speech and answer providers remain independently configurable. Qwen3-ASR 0.6B and 1.7B support CPU and NVIDIA GPU; Faster Whisper CUDA dependencies are downloaded on demand. Loaded models can be unloaded through Settings.
 
-          The knowledge prompt can only extract accessible evidence. Unavailable messages, documents and review threads are recorded as gaps, not invented answers.
-
-          The Windows build runs source tests and checks a fresh installation with the bundled interpreter. A SHA-256 checksum is attached. The installer is not code-signed yet, so Windows may show a SmartScreen warning.
+          The Windows build tests a fresh installation, including the first import into an empty profile with fictional data. The installer ships without personal projects or preconfigured knowledge bases. A SHA-256 checksum is attached. The installer is unsigned and Windows may show a SmartScreen warning.
 
           [Tutorial and examples](https://github.com/utkazilla/agent-utka#use-your-own-project)
           NOTES

@@ -61,43 +61,63 @@ def choose_base_name(app):
 def choose_import_destination(app, source):
     t = app._tr
     window = tk.Toplevel(app.window)
-    window.title(t("Импортировать выжимку"))
+    window.title(t("Добавить файл в базу"))
     window.transient(app.window)
     window.attributes("-topmost", app.top.get())
     window.configure(bg=app.window.cget("bg"))
     window.resizable(False, False)
     body = tk.Frame(window, bg=window.cget("bg"), padx=16, pady=14)
     body.pack(fill="both", expand=True)
-    app._label(body, t("Название выжимки"), size=14, bold=True).pack(anchor="w")
+    app._label(body, t("Добавить файл в базу"), size=14, bold=True).pack(anchor="w")
+    app._label(body, source.name, size=9, wrap=390).pack(anchor="w", pady=(4, 12))
     create = t("Новая база…")
+    while create in app.bases:
+        create += "…"
     options = [*app.bases, create]
     chosen = next((label for label, root in app.bases.items() if root == app.project), create)
     destination = tk.StringVar(value=chosen)
+
+    def default_name(title):
+        return " ".join(title.split())[:100].strip() or source.name[:100]
+
     def suggested_title():
         try:
-            return import_title(app.bases.get(destination.get()), source)
+            return default_name(import_title(app.bases.get(destination.get()), source))
         except (OSError, ValueError):
-            return document_title(source)
+            return default_name(document_title(source))
 
     last_suggested = suggested_title()
     document_name = tk.StringVar(value=last_suggested)
-    document_entry = ttk.Entry(body, name="document_name", textvariable=document_name,
-                               style="Copilot.TEntry", width=46)
-    document_entry.pack(fill="x", pady=(6, 4))
-    app._label(body, t("Название видно в источниках. Исходный файл не изменится."),
-               size=9, wrap=400).pack(anchor="w")
-    app._label(body, t("Добавить в базу"), size=11, bold=True).pack(anchor="w", pady=(16, 6))
-    destination_row = tk.Frame(body, bg=body.cget("bg"))
-    destination_row.pack(fill="x")
-    picker = ttk.Combobox(destination_row, name="base", textvariable=destination, values=options,
-                          state="readonly", style="Copilot.TCombobox", width=46)
-    app._button(destination_row, create, lambda: destination.set(create)).pack(side="right", padx=(8, 0))
-    picker.pack(side="left", fill="x", expand=True)
-    name_row = tk.Frame(body, bg=body.cget("bg"))
-    app._label(name_row, t("Название новой базы"), size=9).pack(anchor="w", pady=(12, 4))
-    name = tk.StringVar(value=document_title(source))
-    entry = ttk.Entry(name_row, name="name", textvariable=name, style="Copilot.TEntry")
+    target_fields = tk.Frame(body, bg=body.cget("bg"))
+    target_fields.pack(fill="x")
+    picker = None
+    if app.bases:
+        app._label(target_fields, t("Добавить в базу"), size=10, bold=True).pack(anchor="w", pady=(0, 4))
+        picker = ttk.Combobox(target_fields, name="base", textvariable=destination, values=options,
+                              state="readonly", style="Copilot.TCombobox", width=42)
+        picker.pack(fill="x")
+    name_row = tk.Frame(target_fields, bg=body.cget("bg"))
+    app._label(name_row, t("Название базы"), size=10, bold=True).pack(anchor="w", pady=(6, 4))
+    name = tk.StringVar(value=default_name(document_title(source)))
+    entry = ttk.Entry(name_row, name="name", textvariable=name, style="Copilot.TEntry", width=42)
     entry.pack(fill="x")
+
+    details = tk.Frame(body, bg=body.cget("bg"))
+    details.pack(fill="x", pady=(8, 0))
+    name_details = tk.Frame(details, bg=body.cget("bg"))
+    app._label(name_details, t("Название выжимки"), size=9).pack(anchor="w", pady=(0, 4))
+    document_entry = ttk.Entry(name_details, name="document_name", textvariable=document_name,
+                               style="Copilot.TEntry", width=42)
+    document_entry.pack(fill="x")
+
+    def show_document_name():
+        edit_name.pack_forget()
+        name_details.pack(fill="x")
+        document_entry.focus_set()
+        document_entry.selection_range(0, "end")
+
+    edit_name = app._button(details, t("Изменить название выжимки…"), show_document_name)
+    edit_name.pack(anchor="w")
     feedback = tk.StringVar()
     app._label(body, var=feedback, size=9, wrap=400).pack(fill="x", pady=(12, 14))
     buttons = tk.Frame(body, bg=body.cget("bg"))
@@ -111,7 +131,7 @@ def choose_import_destination(app, source):
         title = " ".join(name.get().split())
         if destination.get() != create:
             return True, ""
-        if not title or len(title) > 100 or title == create:
+        if not title or len(title) > 100:
             return False, t("Введи название базы — до 100 символов.")
         if title.casefold() in {summary_title(root).casefold() for root in app.bases.values()}:
             return False, t("Такая база уже есть. Выбери её в списке.")
@@ -133,7 +153,7 @@ def choose_import_destination(app, source):
 
     def update(*_):
         if destination.get() == create:
-            name_row.pack(fill="x", after=destination_row)
+            name_row.pack(fill="x")
         else:
             name_row.pack_forget()
         ready, message = valid()
@@ -158,7 +178,7 @@ def choose_import_destination(app, source):
     window.update_idletasks()
     window.geometry(f"+{app.window.winfo_rootx() + 20}+{app.window.winfo_rooty() + 65}")
     window.grab_set()
-    document_entry.focus_set()
-    document_entry.selection_range(0, "end")
+    focus = entry if chosen == create else picker
+    focus.focus_set()
     window.wait_window()
     return result
